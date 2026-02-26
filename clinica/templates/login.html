@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acesso ao Sistema Clínico</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4f7f6; /* Fundo cinza bem claro, amigável para os olhos */
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-card {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+        .btn-primary {
+            background-color: #0d6efd; /* Azul padrão de sistemas confiáveis */
+            border: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-card">
+    <h4 class="text-center mb-4">Acesso ao Sistema</h4>
+    <form method="POST" action="{% url 'login' %}">        
+        {% csrf_token %}
+
+        <div class="mb-3">
+            <label for="usuario" class="form-label">Usuário</label>
+            <input type="text" class="form-control" id="usuario" name="usuario" placeholder="Digite seu usuário" required>
+        </div>
+        
+        <div class="mb-3">
+            <label for="senha" class="form-label">Senha</label>
+            <input type="password" class="form-control" id="senha" name="senha" placeholder="Digite sua senha" required>
+        </div>
+
+        <div class="mb-4">
+            <label for="unidade" class="form-label">Unidade de Saúde</label>
+            <select class="form-select" id="unidade" name="unidade" required>
+                <option value="" selected disabled>Informe o usuário primeiro...</option>
+            </select>
+        </div>
+
+        {% if erro %}
+        <div class="alert alert-danger p-2 text-center" role="alert">
+            {{ erro }}
+        </div>
+        {% endif %}
+
+        <button type="submit" class="btn btn-primary w-100">Entrar</button>
+    </form>
+</div>
+
+<script>
+    // Quando o campo "usuario" perder o foco (ex: a pessoa clicar na senha)
+    document.getElementById('usuario').addEventListener('blur', function() {
+        const username = this.value;
+        const selectUnidade = document.getElementById('unidade');
+        
+        if (username) {
+            selectUnidade.innerHTML = '<option value="" selected disabled>Buscando unidades...</option>';
+            
+            // Vai no servidor e chama aquela rota da API que criamos
+            fetch(`/api/unidades/?usuario=${username}`)
+                .then(response => response.json())
+                .then(data => {
+                    // Limpa o select
+                    selectUnidade.innerHTML = '<option value="" selected disabled>Selecione a unidade...</option>';
+                    
+                    // Se encontrou unidades, preenche a caixa
+                    if (data.unidades.length > 0) {
+                        data.unidades.forEach(unidade => {
+                            selectUnidade.innerHTML += `<option value="${unidade.id}">${unidade.nome}</option>`;
+                        });
+                    } else {
+                        selectUnidade.innerHTML = '<option value="" selected disabled>Usuário sem unidade ou não encontrado.</option>';
+                    }
+                })
+                .catch(error => {
+                    selectUnidade.innerHTML = '<option value="" selected disabled>Erro ao buscar unidades.</option>';
+                });
+        } else {
+            selectUnidade.innerHTML = '<option value="" selected disabled>Informe o usuário primeiro...</option>';
+        }
+    });
+</script>
+
+</body>
+</html>

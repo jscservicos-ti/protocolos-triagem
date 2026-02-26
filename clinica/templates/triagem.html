@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Módulo de Triagem - Sistema Clínico</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; padding-bottom: 50px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; border: none; }
+        .navbar { background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bold text-primary me-4" href="{% url 'medico' %}">Sistema Clínico</a>
+            
+            <div class="navbar-nav me-auto align-items-center">
+                <a class="nav-link fw-bold" href="{% url 'medico' %}">Monitorar</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' or request.user.perfilacesso.tipo_perfil == 'PADRAO' %}
+                <a class="nav-link active fw-bold text-primary" href="{% url 'triagem' %}">Nova Triagem</a>
+                <a class="nav-link fw-bold" href="{% url 'historico_triagem' %}">Histórico</a>
+                {% endif %}
+                
+                <a class="nav-link fw-bold" href="{% url 'relatorios' %}">Relatórios</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
+                    <a href="{% url 'painel_admin' %}" class="btn btn-sm btn-warning text-dark fw-bold rounded-pill px-3 ms-4 shadow-sm">
+                        <i class="bi bi-shield-lock-fill me-1"></i> Administração Central
+                    </a>
+                {% endif %}
+            </div>
+            
+            <div class="d-flex align-items-center">
+                <div class="text-end me-3">
+                    <div class="fw-bold fs-6 text-dark">{{ nome_usuario|title }}</div>
+                    <div class="text-muted" style="font-size: 0.8rem;">{{ perfil_nome }}</div>
+                </div>
+                <a href="{% url 'sair' %}" class="btn btn-outline-secondary btn-sm">Sair</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container px-4">
+
+    <div id="resultado-score" class="alert shadow position-relative" style="display: none; text-align: center; font-size: 1.2rem; font-weight: bold;">
+    </div>
+
+    <div class="card border">
+        <h5 class="mb-4 text-primary">1. Identificação do Paciente</h5>
+        <form id="form-triagem" onsubmit="event.preventDefault();">
+            <input type="hidden" id="atendimento_id" value="">
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="nome" class="form-label">Nome Completo <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="nome" placeholder="Nome do paciente" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="cpf" class="form-label">CPF</label>
+                    <input type="text" class="form-control" id="cpf" placeholder="000.000.000-00">
+                </div>
+            </div>
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label for="nascimento" class="form-label">Data de Nascimento</label>
+                    <input type="date" class="form-control" id="nascimento">
+                </div>
+                <div class="col-md-6">
+                    <label for="mae" class="form-label">Nome da Mãe</label>
+                    <input type="text" class="form-control" id="mae" placeholder="Nome da mãe do paciente">
+                </div>
+            </div>
+
+            <hr class="mb-4">
+
+            <h5 class="mb-4 text-primary">2. Protocolo Clínico</h5>
+            <div class="mb-4">
+                <label for="protocolo" class="form-label">Selecione o Protocolo a ser aplicado <span class="text-danger">*</span></label>
+                <select class="form-select" id="protocolo" required>
+                    <option value="" selected disabled>Escolha o protocolo...</option>
+                    <option value="NEWS">NEWS (Adulto)</option>
+                    <option value="PEWS">PEWS (Pediátrico)</option>
+                    <option value="MEOWS">MEOWS (Obstétrico)</option>
+                </select>
+            </div>
+
+            <div class="text-end">
+                <button type="button" class="btn btn-primary px-5" onclick="mostrarSinaisVitais()">Aferir Sinais Vitais</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card border" id="secao-sinais-vitais" style="display: none;">
+        <h5 class="mb-4 text-primary">3. Aferição de Sinais Vitais</h5>
+        
+        {% csrf_token %}
+
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label class="form-label">Freq. Respiratória (irpm) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="freq_resp" placeholder="Ex: 18">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Saturação O2 (%) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="sat_o2" placeholder="Ex: 96">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Uso de O2 Suplementar? <span class="text-danger">*</span></label>
+                <select class="form-select" id="uso_o2">
+                    <option value="Não">Não</option>
+                    <option value="Sim">Sim</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Temperatura (°C) <span class="text-danger">*</span></label>
+                <input type="number" step="0.1" class="form-control" id="temp" placeholder="Ex: 36.5">
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <label class="form-label">Pressão Sistólica (mmHg) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="pas" placeholder="Ex: 120">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Frequência Cardíaca (bpm) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="fc" placeholder="Ex: 80">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Nível de Consciência <span class="text-danger">*</span></label>
+                <select class="form-select" id="consciencia">
+                    <option value="Alerta">Alerta</option>
+                    <option value="Confusão">Confusão</option>
+                    <option value="Voz">Resposta à Voz</option>
+                    <option value="Dor">Resposta à Dor</option>
+                    <option value="Inconsciente">Inconsciente</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <button type="button" class="btn btn-success btn-lg px-5 fw-bold" onclick="abrirModalConfirmacao()">Calcular Escore Clínico</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalConfirmacao" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title fw-bold">Confirmação</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body text-center fs-5 py-4">
+        Finalizar Atendimento?
+      </div>
+      <div class="modal-footer justify-content-center bg-light">
+        <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Não</button>
+        <button type="button" class="btn btn-primary px-4 fw-bold" onclick="confirmarEEnviar()">Sim</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalAlerta" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>Aviso Importante</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body text-center fs-5 py-4" id="textoModalAlerta">
+        </div>
+      <div class="modal-footer justify-content-center bg-light">
+        <button type="button" class="btn btn-warning px-4 fw-bold" data-bs-dismiss="modal">Entendi</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    let temporizadorAlerta;
+
+    function mostrarAlerta(mensagem) {
+        document.getElementById('textoModalAlerta').innerText = mensagem;
+        var myModal = new bootstrap.Modal(document.getElementById('modalAlerta'));
+        myModal.show();
+    }
+
+    function fecharAlertaScore() {
+        document.getElementById('resultado-score').style.display = 'none';
+        if (temporizadorAlerta) clearTimeout(temporizadorAlerta); 
+    }
+
+    function mostrarSinaisVitais() {
+        const protocolo = document.getElementById('protocolo').value;
+        const nome = document.getElementById('nome').value;
+
+        if (nome.trim() === "") {
+            mostrarAlerta('Por favor, preencha o Nome Completo do paciente.');
+            return;
+        }
+
+        if (protocolo === "") {
+            mostrarAlerta('Por favor, selecione o Protocolo a ser aplicado.');
+            return;
+        }
+
+        document.getElementById('secao-sinais-vitais').style.display = 'block';
+    }
+
+    function abrirModalConfirmacao() {
+        const freq_resp = document.getElementById('freq_resp').value;
+        const sat_o2 = document.getElementById('sat_o2').value;
+        const temp = document.getElementById('temp').value;
+        const pas = document.getElementById('pas').value;
+        const fc = document.getElementById('fc').value;
+
+        if (freq_resp === "" || sat_o2 === "" || temp === "" || pas === "" || fc === "") {
+            mostrarAlerta('Atenção: Todos os campos de sinais vitais são obrigatórios. Por favor, preencha as informações pendentes.');
+            return; 
+        }
+
+        var myModal = new bootstrap.Modal(document.getElementById('modalConfirmacao'));
+        myModal.show();
+    }
+
+    function confirmarEEnviar() {
+        var modalEl = document.getElementById('modalConfirmacao');
+        var modal = bootstrap.Modal.getInstance(modalEl);
+        modal.hide();
+
+        const dados = {
+            atendimento_id: document.getElementById('atendimento_id').value, 
+            nome: document.getElementById('nome').value,
+            cpf: document.getElementById('cpf').value,
+            nascimento: document.getElementById('nascimento').value,
+            mae: document.getElementById('mae').value,
+            protocolo: document.getElementById('protocolo').value,
+            
+            freq_respiratoria: document.getElementById('freq_resp').value,
+            saturacao_o2: document.getElementById('sat_o2').value,
+            uso_o2_suplementar: document.getElementById('uso_o2').value,
+            temperatura: document.getElementById('temp').value,
+            pressao_sistolica: document.getElementById('pas').value,
+            freq_cardiaca: document.getElementById('fc').value,
+            nivel_consciencia: document.getElementById('consciencia').value
+        };
+
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        fetch('/api/salvar-triagem/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(dados)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.sucesso) {
+                const resultadoDiv = document.getElementById('resultado-score');
+                resultadoDiv.style.display = 'block';
+                
+                if (data.risco === 'Alto') resultadoDiv.className = 'alert alert-danger mt-4 mb-4 shadow position-relative';
+                else if (data.risco === 'Médio') resultadoDiv.className = 'alert alert-warning mt-4 mb-4 shadow position-relative';
+                else resultadoDiv.className = 'alert alert-success mt-4 mb-4 shadow position-relative';
+                
+                resultadoDiv.innerHTML = `
+                    <button type="button" class="btn-close position-absolute top-0 end-0 m-3" aria-label="Fechar" onclick="fecharAlertaScore()"></button>
+                    <div style="font-size: 1rem; font-weight: normal; text-transform: uppercase; margin-bottom: 5px; color: #495057;">Paciente: <strong>${dados.nome}</strong></div>
+                    Score ${dados.protocolo}: ${data.score} (${data.risco} Risco) <br>
+                    <span style="font-size: 1rem; font-weight: normal;">Conduta: ${data.conduta}</span>
+                `;
+                
+                document.getElementById('atendimento_id').value = ''; 
+                document.getElementById('nome').value = '';
+                document.getElementById('cpf').value = '';
+                document.getElementById('nascimento').value = '';
+                document.getElementById('mae').value = '';
+                document.getElementById('protocolo').value = '';
+                
+                document.getElementById('freq_resp').value = '';
+                document.getElementById('sat_o2').value = '';
+                document.getElementById('uso_o2').value = 'Não';
+                document.getElementById('temp').value = '';
+                document.getElementById('pas').value = '';
+                document.getElementById('fc').value = '';
+                document.getElementById('consciencia').value = 'Alerta';
+
+                document.getElementById('secao-sinais-vitais').style.display = 'none';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+                if (temporizadorAlerta) clearTimeout(temporizadorAlerta);
+                temporizadorAlerta = setTimeout(() => {
+                    fecharAlertaScore();
+                }, 5000);
+
+            } else {
+                mostrarAlerta('Erro de Servidor: ' + data.erro);
+            }
+        });
+    }
+</script>
+
+{% if atendimento %}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        document.getElementById('atendimento_id').value = "{{ atendimento.id }}";
+        document.getElementById('nome').value = "{{ atendimento.paciente.nome_completo|default:'' }}";
+        document.getElementById('cpf').value = "{{ atendimento.paciente.cpf|default:'' }}";
+        
+        document.getElementById('nascimento').value = "{{ atendimento.paciente.data_nascimento|date:'Y-m-d'|default:'' }}";
+        
+        document.getElementById('mae').value = "{{ atendimento.paciente.nome_mae|default:'' }}";
+        document.getElementById('protocolo').value = "{{ atendimento.protocolo }}";
+        
+        document.getElementById('freq_resp').value = "{{ atendimento.freq_respiratoria|default:'' }}";
+        document.getElementById('sat_o2').value = "{{ atendimento.saturacao_o2|default:'' }}";
+        document.getElementById('uso_o2').value = "{{ atendimento.uso_o2_suplementar|yesno:'Sim,Não' }}";
+        
+        let temp = "{{ atendimento.temperatura|default:'' }}".replace(',', '.');
+        document.getElementById('temp').value = temp;
+        
+        document.getElementById('pas').value = "{{ atendimento.pressao_sistolica|default:'' }}";
+        document.getElementById('fc').value = "{{ atendimento.freq_cardiaca|default:'' }}";
+        document.getElementById('consciencia').value = "{{ atendimento.nivel_consciencia|default:'Alerta' }}";
+        
+        document.getElementById('secao-sinais-vitais').style.display = 'block';
+        
+        document.querySelector('.card h5').innerHTML = '<span class="badge bg-warning text-dark me-2">Modo Edição</span> Identificação do Paciente';
+    });
+</script>
+{% endif %}
+</body>
+</html>

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administração do Sistema</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f4f7f6; padding: 20px; }
+        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .navbar { background-color: #212529; border-radius: 10px; margin-bottom: 30px; padding: 15px; }
+        .navbar-brand, .navbar .nav-link { color: white !important; font-weight: bold; }
+        .admin-pills-container { background-color: #f8f9fa; padding: 6px; border-radius: 10px; display: inline-flex; border: 1px solid #e9ecef; }
+        .admin-pills-container .nav-link { color: #495057; font-weight: 600; border-radius: 8px; padding: 8px 24px; transition: all 0.2s ease-in-out; }
+        .admin-pills-container .nav-link:hover { background-color: #e2e6ea; color: #212529; }
+        .admin-pills-container .nav-link.active { background-color: #0d6efd; color: #ffffff !important; box-shadow: 0 2px 4px rgba(13, 110, 253, 0.4); }
+        .opacity-50 { opacity: 0.5; }
+        .caixa-unidades { max-height: 150px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+
+{% csrf_token %}
+
+<div class="container">
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid px-0">
+            <a class="navbar-brand me-4" href="#"><i class="bi bi-shield-lock-fill me-2 text-warning"></i>Administração Central</a>
+            <div class="d-flex bg-white bg-opacity-10 rounded-pill p-1 me-auto border border-white border-opacity-25">
+                <a class="btn text-white rounded-pill fw-bold px-4" href="{% url 'medico' %}">Voltar ao Painel Médico</a>
+            </div>
+            <div class="ms-auto text-white d-flex align-items-center">
+                <span class="me-4 fw-bold">Olá, {{ nome_usuario|title }}</span>
+                <a href="{% url 'sair' %}" class="btn btn-outline-light btn-sm">Sair</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="card">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="fw-bold text-dark mb-0">Gestão do Sistema</h4>
+        </div>
+
+        <ul class="nav nav-pills mb-4 admin-pills-container" id="adminTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="usuarios-tab" data-bs-toggle="pill" data-bs-target="#usuarios" type="button" role="tab">
+                    <i class="bi bi-people-fill me-2"></i>Usuários do Sistema
+                </button>
+            </li>
+            <li class="nav-item ms-2" role="presentation">
+                <button class="nav-link" id="unidades-tab" data-bs-toggle="pill" data-bs-target="#unidades" type="button" role="tab">
+                    <i class="bi bi-building-fill me-2"></i>Unidades de Saúde
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="adminTabsContent">
+            
+            <div class="tab-pane fade show active" id="usuarios" role="tabpanel">
+                <div class="row mb-3 align-items-center">
+                    <div class="col-md-6">
+                        <form method="GET" class="d-flex">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control" name="busca_usuario" value="{{ busca_usuario }}" placeholder="Buscar por nome ou login...">
+                                <button class="btn btn-primary fw-bold" type="submit">Buscar</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <button class="btn btn-success fw-bold" onclick="abrirModalUsuario()"><i class="bi bi-person-plus-fill me-2"></i>Novo Usuário</button>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle border">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nome Completo</th>
+                                <th>Usuário (Login)</th>
+                                <th>Perfil de Acesso</th>
+                                <th>Unidades Vinculadas</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in lista_usuarios %}
+                            <tr class="{% if not p.usuario.is_active %}bg-light opacity-50{% endif %}">
+                                <td class="fw-bold">
+                                    <span class="p-1 rounded-circle d-inline-block {% if p.usuario.is_active %}bg-success{% else %}bg-danger{% endif %} me-2" title="{% if p.usuario.is_active %}Ativo{% else %}Inativo{% endif %}"></span>
+                                    {{ p.usuario.first_name }} {{ p.usuario.last_name }}
+                                </td>
+                                <td>{{ p.usuario.username }}</td>
+                                <td><span class="badge bg-secondary">{{ p.get_tipo_perfil_display }}</span></td>
+                                <td>
+                                    <small class="text-muted">
+                                        {% for u in p.unidades.all %}
+                                            {{ u.nome }}{% if not forloop.last %}, {% endif %}
+                                        {% empty %}
+                                            <span class="text-danger">Nenhuma unidade vinculada</span>
+                                        {% endfor %}
+                                    </small>
+                                </td>
+                                <td class="text-center text-nowrap">
+                                    <button onclick="abrirModalUsuario(`{{ p.usuario.id }}`, `{{ p.usuario.first_name }} {{ p.usuario.last_name }}`, `{{ p.cpf }}`, `{{ p.usuario.username }}`, `{{ p.tipo_perfil }}`, `{% for u in p.unidades.all %}{{ u.id }}{% if not forloop.last %},{% endif %}{% endfor %}`)" class="btn btn-sm btn-outline-primary me-1" title="Editar Usuário"><i class="bi bi-pencil-square"></i></button>
+                                    
+                                    <button onclick="confirmarResetSenha(`{{ p.usuario.id }}`, `{{ p.usuario.first_name }} {{ p.usuario.last_name }}`)" class="btn btn-sm btn-outline-warning me-1" title="Resetar Senha para Padrão"><i class="bi bi-key-fill"></i></button>
+                                    
+                                    <button onclick="alternarStatusUsuario(`{{ p.usuario.id }}`)" class="btn btn-sm {% if p.usuario.is_active %}btn-outline-secondary{% else %}btn-outline-success{% endif %} me-1" title="{% if p.usuario.is_active %}Inativar Usuário{% else %}Reativar Usuário{% endif %}">
+                                        <i class="bi {% if p.usuario.is_active %}bi-pause-circle{% else %}bi-play-circle{% endif %}"></i>
+                                    </button>
+
+                                    <button onclick="abrirModalExclusaoUsuario(`{{ p.usuario.id }}`, `{{ p.usuario.first_name }} {{ p.usuario.last_name }}`)" class="btn btn-sm btn-outline-danger" title="Excluir Usuário"><i class="bi bi-trash"></i></button>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">Nenhum usuário encontrado na busca.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="unidades" role="tabpanel">
+                <div class="d-flex justify-content-end mb-3">
+                    <button class="btn btn-success fw-bold" onclick="abrirModalUnidade('', '')"><i class="bi bi-plus-circle-fill me-2"></i>Nova Unidade</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle border">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nome da Unidade</th>
+                                <th>Status</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for u in lista_unidades %}
+                            <tr class="{% if not u.ativo %}bg-light opacity-50{% endif %}">
+                                <td class="fw-bold">{{ u.nome }}</td>
+                                <td>
+                                    {% if u.ativo %}<span class="badge bg-success">Ativa</span>
+                                    {% else %}<span class="badge bg-secondary">Inativa</span>{% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <button onclick="abrirModalUnidade(`{{ u.id }}`, `{{ u.nome }}`)" class="btn btn-sm btn-outline-primary me-1" title="Editar Unidade"><i class="bi bi-pencil-square"></i></button>
+                                    <button onclick="alternarStatusUnidade(`{{ u.id }}`)" class="btn btn-sm {% if u.ativo %}btn-outline-warning{% else %}btn-outline-success{% endif %} me-1" title="{% if u.ativo %}Inativar Unidade{% else %}Reativar Unidade{% endif %}">
+                                        <i class="bi {% if u.ativo %}bi-pause-circle{% else %}bi-play-circle{% endif %}"></i>
+                                    </button>
+                                    <button onclick="abrirModalExclusaoUnidade(`{{ u.id }}`, `{{ u.nome }}`)" class="btn btn-sm btn-outline-danger" title="Excluir Unidade"><i class="bi bi-trash"></i></button>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="3" class="text-center text-muted py-4">Nenhuma unidade cadastrada.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalUnidade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title fw-bold" id="tituloModalUnidade">Nova Unidade</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <input type="hidden" id="unidade_id" value="">
+        <div class="mb-3">
+            <label class="form-label fw-bold">Nome da Unidade <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="unidade_nome" required>
+        </div>
+      </div>
+      <div class="modal-footer bg-light">
+        <button type="button" class="btn btn-outline-secondary fw-bold px-4" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary fw-bold px-4" onclick="salvarUnidade()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalExcluirUnidade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>Atenção</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center fs-5 py-4">
+        Tem certeza que deseja apagar a unidade:<br><strong id="nomeUnidadeExcluir" class="text-danger"></strong>?
+        <input type="hidden" id="idUnidadeExcluir" value="">
+      </div>
+      <div class="modal-footer justify-content-center bg-light">
+        <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger px-4 fw-bold" onclick="confirmarExclusaoUnidade()">Sim, Apagar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalUsuario" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-success text-white" id="cabecalhoModalUsuario">
+        <h5 class="modal-title fw-bold" id="tituloModalUsuario"><i class="bi bi-person-plus-fill me-2"></i>Novo Usuário</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <form id="formUsuario">
+            <input type="hidden" id="usuario_id" value="">
+            
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Nome Completo <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="usuario_nome" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">CPF</label>
+                    <input type="text" class="form-control" id="usuario_cpf" placeholder="Apenas números">
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Código do Usuário (Login) <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="usuario_username" required>
+                    <small id="avisoSenha" class="text-muted d-none">A senha inicial será igual ao código de usuário.</small>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Perfil de Acesso <span class="text-danger">*</span></label>
+                    <select class="form-select" id="usuario_perfil" required>
+                        <option value="" disabled selected>Selecione...</option>
+                        <option value="ENFERMAGEM">Enfermagem (Triagem)</option>
+                        <option value="MEDICO">Médico (Painel Clínico)</option>
+                        <option value="ADMINISTRATIVO">Administrativo (Recepção)</option>
+                        <option value="PADRAO">Padrão (Acesso Total Clínico)</option> <option value="ADMIN">Administrador de Sistema (Full)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label fw-bold">Unidades Vinculadas (Múltipla Seleção) <span class="text-danger">*</span></label>
+                <div class="caixa-unidades">
+                    {% for u in lista_unidades %}
+                        <div class="form-check">
+                            <input class="form-check-input check-unidade" type="checkbox" value="{{ u.id }}" id="chk_u_{{ u.id }}">
+                            <label class="form-check-label" for="chk_u_{{ u.id }}">{{ u.nome }}</label>
+                        </div>
+                    {% empty %}
+                        <span class="text-danger">Cadastre unidades primeiro.</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </form>
+      </div>
+      <div class="modal-footer bg-light">
+        <button type="button" class="btn btn-outline-secondary fw-bold px-4" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-success fw-bold px-4" onclick="salvarUsuario()" id="btnSalvarUsuario">Salvar Usuário</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalConfirmarReset" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>Redefinir Senha</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body fs-5 py-4 text-center">
+        Atenção: A senha do usuário <strong id="nomeUsuarioReset" class="text-primary"></strong> será redefinida.<br><br>
+        <span class="text-muted fs-6">A nova senha será igual ao código de login dele e ele será forçado a trocá-la no próximo acesso.</span>
+        <input type="hidden" id="idUsuarioReset" value="">
+      </div>
+      <div class="modal-footer justify-content-center bg-light">
+        <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning px-4 fw-bold" onclick="executarResetSenha()">Sim, Redefinir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalExcluirUsuario" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>Atenção</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center fs-5 py-4">
+        Tem certeza que deseja <strong class="text-danger">APAGAR</strong> o usuário:<br><strong id="nomeUsuarioExcluir" class="text-dark"></strong>?<br>
+        <span class="text-muted fs-6 d-block mt-3">Nota: Se ele tiver feito triagens, o sistema não deixará apagar. Nesses casos, apenas inative.</span>
+        <input type="hidden" id="idUsuarioExcluir" value="">
+      </div>
+      <div class="modal-footer justify-content-center bg-light">
+        <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger px-4 fw-bold" onclick="executarExclusaoUsuario()">Sim, Apagar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalAvisoGenerico" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header" id="headerModalAviso">
+        <h5 class="modal-title fw-bold" id="tituloModalAviso">Aviso</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center fs-5 py-4" id="textoModalAviso"></div>
+      <div class="modal-footer justify-content-center bg-light">
+        <button type="button" class="btn btn-secondary px-4 fw-bold" data-bs-dismiss="modal" onclick="window.location.reload()">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('aba') === 'unidades') {
+            var tab = new bootstrap.Tab(document.querySelector('#unidades-tab'));
+            tab.show();
+        }
+    });
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    function mostrarAvisoGenerico(mensagem, tipo) {
+        document.getElementById('textoModalAviso').innerText = mensagem;
+        const header = document.getElementById('headerModalAviso');
+        const btnClose = header.querySelector('.btn-close');
+        
+        header.className = 'modal-header';
+        btnClose.className = 'btn-close';
+        
+        if (tipo === 'success') {
+            header.classList.add('bg-success', 'text-white');
+            btnClose.classList.add('btn-close-white');
+            document.getElementById('tituloModalAviso').innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>Sucesso';
+        } else if (tipo === 'danger') {
+            header.classList.add('bg-danger', 'text-white');
+            btnClose.classList.add('btn-close-white');
+            document.getElementById('tituloModalAviso').innerHTML = '<i class="bi bi-x-circle-fill me-2"></i>Erro';
+        } else if (tipo === 'warning') {
+            header.classList.add('bg-warning', 'text-dark');
+            document.getElementById('tituloModalAviso').innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i>Atenção';
+        }
+        
+        new bootstrap.Modal(document.getElementById('modalAvisoGenerico')).show();
+    }
+
+    // ============== SCRIPT DE UNIDADES ==============
+    function abrirModalUnidade(id, nome) {
+        document.getElementById('unidade_id').value = id; document.getElementById('unidade_nome').value = nome;
+        if(id) document.getElementById('tituloModalUnidade').innerHTML = '<i class="bi bi-pencil-square me-2"></i>Editar Unidade';
+        else document.getElementById('tituloModalUnidade').innerHTML = '<i class="bi bi-plus-circle-fill me-2"></i>Nova Unidade';
+        new bootstrap.Modal(document.getElementById('modalUnidade')).show();
+    }
+    
+    function salvarUnidade() {
+        const id = document.getElementById('unidade_id').value; const nome = document.getElementById('unidade_nome').value;
+        if (nome.trim() === '') { mostrarAvisoGenerico('Por favor, informe o nome da unidade.', 'warning'); return; }
+        
+        fetch('/api/salvar-unidade/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify({ id: id, nome: nome }) })
+        .then(response => response.json()).then(data => { 
+            if (data.sucesso) window.location.href = window.location.pathname + '?aba=unidades'; 
+            else mostrarAvisoGenerico('Erro ao salvar: ' + data.erro, 'danger'); 
+        });
+    }
+    
+    function alternarStatusUnidade(id) {
+        fetch(`/api/unidade/${id}/toggle/`, { method: 'POST', headers: { 'X-CSRFToken': csrfToken } }).then(response => response.json())
+        .then(data => { 
+            if (data.sucesso) window.location.href = window.location.pathname + '?aba=unidades'; 
+            else mostrarAvisoGenerico('Erro: ' + data.erro, 'danger'); 
+        });
+    }
+    
+    function abrirModalExclusaoUnidade(id, nome) {
+        document.getElementById('idUnidadeExcluir').value = id; document.getElementById('nomeUnidadeExcluir').innerText = nome;
+        new bootstrap.Modal(document.getElementById('modalExcluirUnidade')).show();
+    }
+    
+    function confirmarExclusaoUnidade() {
+        const id = document.getElementById('idUnidadeExcluir').value;
+        fetch(`/api/unidade/${id}/excluir/`, { method: 'POST', headers: { 'X-CSRFToken': csrfToken } }).then(response => response.json())
+        .then(data => { 
+            if (data.sucesso) {
+                window.location.href = window.location.pathname + '?aba=unidades'; 
+            } else { 
+                bootstrap.Modal.getInstance(document.getElementById('modalExcluirUnidade')).hide();
+                mostrarAvisoGenerico('Erro: ' + data.erro, 'danger'); 
+            }
+        });
+    }
+
+    // ============== SCRIPT DE USUÁRIOS ==============
+    function abrirModalUsuario(id = '', nome = '', cpf = '', username = '', perfil = '', unidades_str = '') {
+        document.getElementById('usuario_id').value = id;
+        document.getElementById('usuario_nome').value = nome;
+        document.getElementById('usuario_cpf').value = cpf;
+        document.getElementById('usuario_username').value = username;
+        document.getElementById('usuario_perfil').value = perfil;
+
+        const cabecalho = document.getElementById('cabecalhoModalUsuario');
+        const btnSalvar = document.getElementById('btnSalvarUsuario');
+        
+        if (id) {
+            document.getElementById('tituloModalUsuario').innerHTML = '<i class="bi bi-pencil-square me-2"></i>Editar Usuário';
+            document.getElementById('avisoSenha').classList.add('d-none');
+            document.getElementById('usuario_username').disabled = true; 
+            cabecalho.className = 'modal-header bg-primary text-white';
+            btnSalvar.className = 'btn btn-primary fw-bold px-4';
+        } else {
+            document.getElementById('tituloModalUsuario').innerHTML = '<i class="bi bi-person-plus-fill me-2"></i>Novo Usuário';
+            document.getElementById('avisoSenha').classList.remove('d-none');
+            document.getElementById('usuario_username').disabled = false;
+            cabecalho.className = 'modal-header bg-success text-white';
+            btnSalvar.className = 'btn btn-success fw-bold px-4';
+        }
+
+        const unidades_ids = unidades_str ? unidades_str.split(',') : [];
+        document.querySelectorAll('.check-unidade').forEach(chk => chk.checked = false);
+        unidades_ids.forEach(u_id => {
+            const checkbox = document.getElementById('chk_u_' + u_id.trim());
+            if (checkbox) checkbox.checked = true;
+        });
+
+        new bootstrap.Modal(document.getElementById('modalUsuario')).show();
+    }
+
+    function salvarUsuario() {
+        const unidades_marcadas = Array.from(document.querySelectorAll('.check-unidade:checked')).map(cb => cb.value);
+
+        const dados = {
+            id: document.getElementById('usuario_id').value,
+            nome_completo: document.getElementById('usuario_nome').value,
+            cpf: document.getElementById('usuario_cpf').value,
+            username: document.getElementById('usuario_username').value,
+            tipo_perfil: document.getElementById('usuario_perfil').value,
+            unidades: unidades_marcadas
+        };
+
+        if (!dados.nome_completo || !dados.username || !dados.tipo_perfil || unidades_marcadas.length === 0) {
+            mostrarAvisoGenerico('Atenção: Nome, Login, Perfil e pelo menos 1 Unidade são obrigatórios.', 'warning');
+            return;
+        }
+
+        fetch('/api/salvar-usuario/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(dados)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.sucesso) window.location.reload();
+            else mostrarAvisoGenerico('Erro ao salvar usuário: ' + data.erro, 'danger');
+        });
+    }
+
+    function alternarStatusUsuario(id) {
+        fetch(`/api/inativar-usuario/${id}/`, { method: 'POST', headers: { 'X-CSRFToken': csrfToken } })
+        .then(response => response.json())
+        .then(data => { 
+            if (data.sucesso) window.location.reload();
+            else mostrarAvisoGenerico('Erro: ' + data.erro, 'danger'); 
+        });
+    }
+
+    function abrirModalExclusaoUsuario(id, nome) {
+        document.getElementById('idUsuarioExcluir').value = id;
+        document.getElementById('nomeUsuarioExcluir').innerText = nome;
+        new bootstrap.Modal(document.getElementById('modalExcluirUsuario')).show();
+    }
+
+    function executarExclusaoUsuario() {
+        const id = document.getElementById('idUsuarioExcluir').value;
+        fetch(`/api/excluir-usuario/${id}/`, { method: 'POST', headers: { 'X-CSRFToken': csrfToken } })
+        .then(response => response.json())
+        .then(data => { 
+            bootstrap.Modal.getInstance(document.getElementById('modalExcluirUsuario')).hide();
+            if (data.sucesso) {
+                mostrarAvisoGenerico('Usuário apagado com sucesso!', 'success');
+            } else { 
+                mostrarAvisoGenerico(data.erro, 'danger'); 
+            }
+        });
+    }
+
+    function confirmarResetSenha(id, nome) {
+        document.getElementById('idUsuarioReset').value = id;
+        document.getElementById('nomeUsuarioReset').innerText = nome;
+        new bootstrap.Modal(document.getElementById('modalConfirmarReset')).show();
+    }
+
+    function executarResetSenha() {
+        const id = document.getElementById('idUsuarioReset').value;
+        fetch(`/api/usuario/${id}/reset-senha/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken }
+        })
+        .then(response => response.json())
+        .then(data => {
+            bootstrap.Modal.getInstance(document.getElementById('modalConfirmarReset')).hide();
+            if (data.sucesso) {
+                mostrarAvisoGenerico('Senha redefinida com sucesso!', 'success');
+            } else {
+                mostrarAvisoGenerico('Erro ao resetar senha: ' + data.erro, 'danger');
+            }
+        });
+    }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  sistema_saude:
+    build: .
+    container_name: sistema_saude
+    restart: unless-stopped
+    volumes:
+      - saude_db:/app/db.sqlite3
+    networks:
+      - rede_traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.saudesistema.rule=Host(`saude.hejagoias.com`)"
+      - "traefik.http.routers.saudesistema.entrypoints=websecure"
+      # Ajuste 'letsencrypt' se o seu resolver no Traefik tiver outro nome
+      - "traefik.http.routers.saudesistema.tls.certresolver=letsencrypt"
+      - "traefik.http.services.saudesistema.loadbalancer.server.port=8000"
+
+volumes:
+  saude_db:
+
+networks:
+  rede_traefik:
+    external: true
+    name: traefik

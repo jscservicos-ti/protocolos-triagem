@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatórios Gerenciais</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; padding-bottom: 50px; }
+        .navbar { background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
+        .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border-radius: 12px; }
+        
+        /* O CABEÇALHO SÓ APARECE NA HORA DE IMPRIMIR O PDF */
+        .cabecalho-pdf { display: none; }
+        
+        /* A MÁGICA DO PDF ACONTECE AQUI */
+        @media print {
+            body { background-color: white; padding: 0; }
+            .d-print-none { display: none !important; } /* Esconde menus, botões e filtros */
+            .cabecalho-pdf { display: block; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+            .card { box-shadow: none; border: none; }
+            .table { border-collapse: collapse !important; }
+            .table td, .table th { background-color: #fff !important; border: 1px solid #dee2e6 !important; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-light" style="background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px;">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bold text-primary me-4" href="{% url 'medico' %}">Sistema Clínico</a>
+            
+            <div class="navbar-nav me-auto align-items-center">
+                <a class="nav-link fw-bold" href="{% url 'medico' %}">Monitorar</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' or request.user.perfilacesso.tipo_perfil == 'PADRAO' %}
+                <a class="nav-link fw-bold" href="{% url 'triagem' %}">Nova Triagem</a>
+                <a class="nav-link fw-bold" href="{% url 'historico_triagem' %}">Histórico</a>
+                {% endif %}
+                
+                <a class="nav-link fw-bold" href="{% url 'relatorios' %}">Relatórios</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
+                    <a href="{% url 'painel_admin' %}" class="btn btn-sm btn-warning text-dark fw-bold rounded-pill px-3 ms-4 shadow-sm">
+                        <i class="bi bi-shield-lock-fill me-1"></i> Administração Central
+                    </a>
+                {% endif %}
+            </div>
+            
+            <div class="d-flex align-items-center">
+                <div class="text-end me-3">
+                    <div class="fw-bold fs-6 text-dark">{{ nome_usuario|title }}</div>
+                    <div class="text-muted" style="font-size: 0.8rem;">{{ perfil_nome }}</div>
+                </div>
+                <a href="{% url 'sair' %}" class="btn btn-outline-secondary btn-sm">Sair</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-5">
+        
+        <div class="cabecalho-pdf">
+            <h2 class="fw-bold">Relatório Gerencial de Triagem</h2>
+            <p class="mb-0"><strong>Unidade:</strong> {{ unidade_nome }}</p>
+            <p class="mb-0"><strong>Período:</strong> {{ periodo_atual|title }} 
+                {% if periodo_atual == 'personalizado' %} ({{ data_inicio }} a {{ data_fim }}) {% endif %}
+            </p>
+            <p><strong>Protocolo Filtrado:</strong> {{ protocolo_atual|upper }}</p>
+        </div>
+
+        <div class="d-print-none d-flex justify-content-between align-items-end mb-4 bg-white p-3 rounded shadow-sm">
+            
+            <form method="GET" class="d-flex align-items-end" id="formFiltro">
+                <div class="me-3" style="min-width: 150px;">
+                    <label class="form-label text-muted small fw-bold mb-1">Protocolo:</label>
+                    <select class="form-select bg-light border" name="protocolo" onchange="document.getElementById('formFiltro').submit()">
+                        <option value="todos" {% if protocolo_atual == 'todos' %}selected{% endif %}>Todos</option>
+                        <option value="NEWS" {% if protocolo_atual == 'NEWS' %}selected{% endif %}>NEWS</option>
+                        <option value="PEWS" {% if protocolo_atual == 'PEWS' %}selected{% endif %}>PEWS</option>
+                        <option value="MEOWS" {% if protocolo_atual == 'MEOWS' %}selected{% endif %}>MEOWS</option>
+                    </select>
+                </div>
+
+                <div class="me-3" style="min-width: 200px;">
+                    <label class="form-label text-muted small fw-bold mb-1">Filtrar por Período:</label>
+                    <select class="form-select bg-light border" id="filtroPeriodo" name="periodo" onchange="verificarFiltro()">
+                        <option value="hoje" {% if periodo_atual == 'hoje' %}selected{% endif %}>Plantão de Hoje</option>
+                        <option value="7dias" {% if periodo_atual == '7dias' %}selected{% endif %}>Últimos 7 dias</option>
+                        <option value="30dias" {% if periodo_atual == '30dias' %}selected{% endif %}>Últimos 30 dias</option>
+                        <option value="todos" {% if periodo_atual == 'todos' %}selected{% endif %}>Todo o Histórico</option>
+                        <option value="personalizado" {% if periodo_atual == 'personalizado' %}selected{% endif %}>Personalizado</option>
+                    </select>
+                </div>
+                
+                <div id="datasPersonalizadas" class="d-flex align-items-end {% if periodo_atual != 'personalizado' %}d-none{% endif %}">
+                    <div class="me-2">
+                        <label class="form-label text-muted small fw-bold mb-1">Início:</label>
+                        <input type="date" class="form-control" name="data_inicio" value="{{ data_inicio }}">
+                    </div>
+                    <div class="me-2">
+                        <label class="form-label text-muted small fw-bold mb-1">Fim:</label>
+                        <input type="date" class="form-control" name="data_fim" value="{{ data_fim }}">
+                    </div>
+                    <button type="submit" class="btn btn-primary mb-0">Filtrar</button>
+                </div>
+            </form>
+
+            <div>
+                <button onclick="exportarExcel()" class="btn btn-success fw-bold me-2"><i class="bi bi-file-earmark-excel-fill me-2"></i>Exportar Excel</button>
+                <button onclick="window.print()" class="btn btn-danger fw-bold"><i class="bi bi-file-earmark-pdf-fill me-2"></i>Exportar PDF</button>
+            </div>
+        </div>
+
+        <div class="card p-4 mb-4">
+            <h5 class="fw-bold mb-3 d-print-none">Histórico de Atendimentos</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle border">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nome do Paciente</th>
+                            <th>Data do Atendimento</th>
+                            <th>Protocolo</th>
+                            <th>Score</th>
+                            <th>Risco Final</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for t in triagens %}
+                        <tr>
+                            <td class="fw-bold text-dark">{{ t.paciente.nome_completo|title }}</td>
+                            <td>{{ t.data_hora_triagem|date:"d/m/Y às H:i" }}</td>
+                            <td><span class="badge bg-secondary">{{ t.protocolo|upper }}</span></td>
+                            <td class="fw-bold">{{ t.score_final }}</td>
+                            <td>
+                                {% if t.classificacao_risco == 'Alto' %} <span class="badge bg-danger">Alto Risco</span>
+                                {% elif t.classificacao_risco == 'Médio' %} <span class="badge bg-warning text-dark">Médio Risco</span>
+                                {% else %} <span class="badge bg-success">Baixo Risco</span> {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">Nenhum atendimento encontrado para estes filtros.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <h5 class="fw-bold mb-2">Resumo Geral</h5>
+            
+            {% for prot, riscos in totais.items %}
+                {% if protocolo_atual == 'todos' or protocolo_atual == prot %}
+                <div class="col-md-4">
+                    <div class="card border p-3">
+                        <h6 class="fw-bold border-bottom pb-2 text-primary">Escala {{ prot }}</h6>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-danger fw-semibold">Alto Risco:</span>
+                            <span class="fw-bold">{{ riscos.Alto }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-warning text-dark fw-semibold">Médio Risco:</span>
+                            <span class="fw-bold">{{ riscos.Médio }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span class="text-success fw-semibold">Baixo Risco:</span>
+                            <span class="fw-bold">{{ riscos.Baixo }}</span>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+        
+    </div>
+
+    <script>
+        function verificarFiltro() {
+            var select = document.getElementById('filtroPeriodo');
+            if (select.value === 'personalizado') {
+                document.getElementById('datasPersonalizadas').classList.remove('d-none');
+            } else {
+                document.getElementById('formFiltro').submit();
+            }
+        }
+
+        // Função para pegar a URL atual, manter os filtros aplicados e pedir o Excel
+        function exportarExcel() {
+            let url = new URL(window.location.href);
+            url.searchParams.set('exportar', 'excel');
+            window.location.href = url.href;
+        }
+    </script>
+</body>
+</html>

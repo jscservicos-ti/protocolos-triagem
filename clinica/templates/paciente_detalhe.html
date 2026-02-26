@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detalhes do Paciente - Sistema Clínico</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            padding-bottom: 50px;
+        }
+        .navbar {
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
+        }
+        .info-card, .vitals-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            margin-bottom: 20px;
+        }
+        .alert-box {
+            background-color: #fff5f5;
+            border: 1px solid #ffcdd2;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .vital-sign {
+            margin-bottom: 20px;
+        }
+        .vital-sign-label {
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+        .vital-sign-value {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #212529;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bold text-primary me-4" href="{% url 'medico' %}">Sistema Clínico</a>
+            
+            <div class="navbar-nav me-auto align-items-center">
+                <a class="nav-link fw-bold" href="{% url 'medico' %}">Monitorar</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' or request.user.perfilacesso.tipo_perfil == 'PADRAO' %}
+                <a class="nav-link fw-bold" href="{% url 'triagem' %}">Nova Triagem</a>
+                <a class="nav-link fw-bold" href="{% url 'historico_triagem' %}">Histórico</a>
+                {% endif %}
+                
+                <a class="nav-link fw-bold" href="{% url 'relatorios' %}">Relatórios</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
+                    <a href="{% url 'painel_admin' %}" class="btn btn-sm btn-warning text-dark fw-bold rounded-pill px-3 ms-4 shadow-sm">
+                        <i class="bi bi-shield-lock-fill me-1"></i> Administração Central
+                    </a>
+                {% endif %}
+            </div>
+            
+            <div class="d-flex align-items-center">
+                <div class="text-end me-3">
+                    <div class="fw-bold fs-6 text-dark">{{ nome_usuario|title }}</div>
+                    <div class="text-muted" style="font-size: 0.8rem;">{{ perfil_nome }}</div>
+                </div>
+                <a href="{% url 'sair' %}" class="btn btn-outline-secondary btn-sm">Sair</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-5">
+        
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            {% if origem == 'historico' %}
+                <a href="{% url 'historico_triagem' %}" class="text-decoration-none d-inline-flex align-items-center fw-bold">
+                    <i class="bi bi-chevron-left me-2"></i> Voltar ao Histórico
+                </a>
+            {% else %}
+                <a href="{% url 'medico' %}" class="text-decoration-none d-inline-flex align-items-center fw-bold">
+                    <i class="bi bi-chevron-left me-2"></i> Voltar ao Painel
+                </a>
+            {% endif %}
+            
+            <div class="d-flex align-items-center">
+                {% if is_finalizado %}
+                    <div class="text-end me-3">
+                        <span class="badge bg-secondary px-3 py-2 shadow-sm" style="font-size: 0.9rem;">
+                            <i class="bi bi-door-closed-fill me-1"></i> Alta / Finalizado
+                        </span>
+                        
+                        <div class="text-muted mt-1" style="font-size: 0.75rem; font-weight: bold;">
+                            Por: 
+                            {% if ultimo_atendimento.usuario_finalizou %} 
+                                {{ ultimo_atendimento.usuario_finalizou.first_name|default:ultimo_atendimento.usuario_finalizou.username|title }} 
+                            {% else %} 
+                                Sistema (Inatividade > 24h) 
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {% if pode_reabrir %}
+                        <button class="btn btn-warning btn-sm fw-bold shadow-sm h-100" data-bs-toggle="modal" data-bs-target="#modalReabrir">
+                            <i class="bi bi-unlock-fill me-1"></i> Reabrir ({{ minutos_restantes }} min)
+                        </button>
+                    {% endif %}
+                {% else %}
+                    {% if pode_finalizar %}
+                        <button class="btn btn-success btn-sm fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalFinalizar">
+                            <i class="bi bi-check-circle-fill me-1"></i> Finalizar Atendimento
+                        </button>
+                    {% elif request.user.perfilacesso.tipo_perfil in 'MEDICO,ENFERMAGEM,ADMIN' %}
+                        <button class="btn btn-secondary btn-sm fw-bold shadow-sm" disabled title="Bloqueado: Existem alertas não reconhecidos pelo médico">
+                            <i class="bi bi-lock-fill me-1"></i> Finalizar Atendimento
+                        </button>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="info-card border">
+                    <h5 class="fw-bold mb-4" style="color: #0f172a;">Informações do Paciente</h5>
+                    
+                    <h4 class="fw-bold mb-1" style="color: #1e3a8a;">{{ ultimo_atendimento.paciente.nome_completo|upper }}</h4>
+                    <p class="text-muted small mb-4">CPF: {{ ultimo_atendimento.paciente.cpf|default:"Não informado" }}</p>
+
+                    <div class="mb-3">
+                        <div class="text-muted small">Nascimento</div>
+                        <div class="fw-medium">{{ ultimo_atendimento.paciente.data_nascimento|date:"d/m/Y"|default:"N/A" }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="text-muted small">Nome da Mãe</div>
+                        <div class="fw-medium">{{ ultimo_atendimento.paciente.nome_mae|default:"N/A" }}</div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">Unidade de Atendimento Local</div>
+                        <div class="fw-medium">{{ ultimo_atendimento.unidade.nome }}</div>
+                    </div>
+                </div>
+
+                {% if ultimo_atendimento.classificacao_risco == 'Alto' and not ultimo_atendimento.alerta_reconhecido and not is_finalizado %}
+                <div class="info-card border">
+                    <h5 class="fw-bold mb-3 text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Alerta Ativo</h5>
+                    
+                    <div class="alert-box shadow-sm">
+                        <p class="text-danger fw-medium mb-2" style="font-size: 0.95rem;">
+                            Última pontuação {{ ultimo_atendimento.protocolo }} alta ({{ ultimo_atendimento.score_final }}). Revisão médica imediata necessária.
+                        </p>
+                        <small class="text-danger fw-bold">{{ ultimo_atendimento.data_hora_triagem|date:"d/m/Y, H:i:s" }}</small>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="col-md-8">
+                
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold mb-0" style="color: #0f172a;">Histórico de Sinais Vitais</h5>
+                    
+                    {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
+                        {% if pode_aferir %}
+                            <button class="btn btn-primary btn-sm fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovaAfericao">
+                                <i class="bi bi-plus-circle me-1"></i> Nova Aferição
+                            </button>
+                        {% elif not is_finalizado %}
+                            <button class="btn btn-secondary btn-sm fw-bold shadow-sm" disabled title="Aguardando médico reconhecer o último alerta">
+                                <i class="bi bi-lock-fill me-1"></i> Aferição Bloqueada
+                            </button>
+                        {% endif %}
+                    {% endif %}
+                </div>
+                
+                {% for afericao in historico %}
+                <div class="vitals-card border {% if afericao.id == atendimento.id and not is_finalizado %} border-primary border-2 {% endif %}">
+                    
+                    {% if afericao.id == atendimento.id and not is_finalizado %}
+                        <div class="badge bg-primary mb-3">Aferição Selecionada no Painel</div>
+                    {% endif %}
+
+                    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+                        <div class="d-flex align-items-center">
+                            <span class="badge border me-3
+                                {% if afericao.classificacao_risco == 'Alto' %} bg-danger bg-opacity-10 text-danger border-danger
+                                {% elif afericao.classificacao_risco == 'Médio' %} bg-warning bg-opacity-10 text-warning border-warning
+                                {% else %} bg-success bg-opacity-10 text-success border-success {% endif %}">
+                                {{ afericao.classificacao_risco|upper }} RISCO
+                            </span>
+                            <h4 class="fw-bold mb-0">{{ afericao.protocolo }}: {{ afericao.score_final }}</h4>
+                            
+                            {% if afericao.pode_editar %}
+                                {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
+                                <a href="{% url 'editar_triagem' afericao.id %}" class="btn btn-sm btn-outline-primary ms-3 border-0" title="Editar Aferição (Prazo de 5 min)">
+                                    <i class="bi bi-pencil-square fs-5"></i>
+                                </a>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                        
+                        <div class="text-end">
+                            <div class="text-muted small mb-2 fw-bold">
+                                {{ afericao.data_hora_triagem|date:"d/m/Y, H:i:s" }}
+                            </div>
+                            
+                            {% if afericao.classificacao_risco == 'Alto' %}
+                                {% if afericao.alerta_reconhecido %}
+                                    <span class="badge bg-success bg-opacity-10 text-success border border-success p-2">
+                                        <i class="bi bi-check2-circle"></i> Status: Reconhecido por {{ afericao.medico_reconheceu.first_name|default:afericao.medico_reconheceu.username|title }}
+                                    </span>
+                                {% elif not is_finalizado %}
+                                    <span class="badge bg-danger p-2 mb-2 shadow-sm">
+                                        <i class="bi bi-exclamation-circle"></i> Status: Pendente
+                                    </span>
+                                    <br>
+                                    {% if request.user.perfilacesso.tipo_perfil == 'MEDICO' or request.user.perfilacesso.tipo_perfil == 'ADMIN' or request.user.perfilacesso.tipo_perfil == 'PADRAO' %}
+                                    <a href="{% url 'reconhecer_alerta' afericao.id %}" class="btn btn-dark btn-sm fw-bold shadow-sm mt-1">Reconhecer Alerta</a>
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4 vital-sign">
+                            <div class="vital-sign-label">Frequência Respiratória</div>
+                            <div class="vital-sign-value">{{ afericao.freq_respiratoria|default:"-" }} /min</div>
+                        </div>
+                        <div class="col-md-4 vital-sign">
+                            <div class="vital-sign-label">Saturação de Oxigênio</div>
+                            <div class="vital-sign-value">{{ afericao.saturacao_o2|default:"-" }} %</div>
+                        </div>
+                        <div class="col-md-4 vital-sign">
+                            <div class="vital-sign-label">Temperatura</div>
+                            <div class="vital-sign-value">{{ afericao.temperatura|default:"-" }} °C</div>
+                        </div>
+                        
+                        <div class="col-md-4 vital-sign mb-md-0">
+                            <div class="vital-sign-label">Pressão Sistólica</div>
+                            <div class="vital-sign-value">{{ afericao.pressao_sistolica|default:"-" }} mmHg</div>
+                        </div>
+                        <div class="col-md-4 vital-sign mb-md-0">
+                            <div class="vital-sign-label">Frequência Cardíaca</div>
+                            <div class="vital-sign-value">{{ afericao.freq_cardiaca|default:"-" }} /min</div>
+                        </div>
+                        <div class="col-md-4 vital-sign mb-0">
+                            <div class="vital-sign-label">Consciência</div>
+                            <div class="vital-sign-value">{{ afericao.nivel_consciencia|default:"-" }}</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-top text-muted small">
+                        Triado por: {{ afericao.enfermeiro.first_name }} ({{ afericao.enfermeiro.username }})
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-center text-muted py-5 border rounded bg-white">Nenhum histórico encontrado.</div>
+                {% endfor %}
+
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalFinalizar" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+          <div class="modal-header bg-success text-white">
+            <h5 class="modal-title fw-bold"><i class="bi bi-check-circle-fill me-2"></i>Finalizar Atendimento</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body text-center fs-5 py-4">
+            Tem certeza que deseja dar <strong>Alta / Finalizar</strong> este atendimento?<br>
+            <span class="text-muted fs-6 d-block mt-2">O paciente será removido do painel de monitoramento ativo.</span>
+          </div>
+          <div class="modal-footer justify-content-center bg-light">
+            <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Cancelar</button>
+            <a href="{% url 'finalizar_atendimento' atendimento.id %}" class="btn btn-success px-4 fw-bold">Sim, Finalizar</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="modalReabrir" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+          <div class="modal-header bg-warning text-dark">
+            <h5 class="modal-title fw-bold"><i class="bi bi-unlock-fill me-2"></i>Reabrir Atendimento</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body text-center fs-5 py-4">
+            Tem certeza que deseja <strong>Reabrir</strong> este atendimento?<br>
+            <span class="text-muted fs-6 d-block mt-2">O paciente voltará a aparecer na central de monitoramento.</span>
+          </div>
+          <div class="modal-footer justify-content-center bg-light">
+            <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Cancelar</button>
+            <a href="{% url 'reabrir_atendimento' atendimento.id %}" class="btn btn-warning px-4 fw-bold">Sim, Reabrir</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="modalNovaAfericao" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title fw-bold"><i class="bi bi-clipboard2-pulse me-2"></i>Nova Aferição Clínica</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          
+          <div class="modal-body p-4 bg-light">
+            {% csrf_token %}
+            <input type="hidden" id="na_nome" value="{{ ultimo_atendimento.paciente.nome_completo }}">
+            <input type="hidden" id="na_cpf" value="{{ ultimo_atendimento.paciente.cpf|default:'' }}">
+            <input type="hidden" id="na_nascimento" value="{{ ultimo_atendimento.paciente.data_nascimento|date:'Y-m-d'|default:'' }}">
+            <input type="hidden" id="na_mae" value="{{ ultimo_atendimento.paciente.nome_mae|default:'' }}">
+
+            <div class="mb-4">
+                <label class="form-label fw-bold text-dark">Protocolo a ser aplicado <span class="text-danger">*</span></label>
+                <select class="form-select border-primary" id="na_protocolo">
+                    <option value="NEWS" {% if ultimo_atendimento.protocolo == 'NEWS' %}selected{% endif %}>NEWS (Adulto)</option>
+                    <option value="PEWS" {% if ultimo_atendimento.protocolo == 'PEWS' %}selected{% endif %}>PEWS (Pediátrico)</option>
+                    <option value="MEOWS" {% if ultimo_atendimento.protocolo == 'MEOWS' %}selected{% endif %}>MEOWS (Obstétrico)</option>
+                </select>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">Freq. Respiratória <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="na_freq_resp">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">Saturação O2 (%) <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="na_sat_o2">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">Uso de O2? <span class="text-danger">*</span></label>
+                    <select class="form-select" id="na_uso_o2">
+                        <option value="Não">Não</option>
+                        <option value="Sim">Sim</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">Temperatura (°C) <span class="text-danger">*</span></label>
+                    <input type="number" step="0.1" class="form-control" id="na_temp">
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold">Pressão Sistólica <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="na_pas">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold">Freq. Cardíaca <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="na_fc">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold">Consciência <span class="text-danger">*</span></label>
+                    <select class="form-select" id="na_consciencia">
+                        <option value="Alerta">Alerta</option>
+                        <option value="Confusão">Confusão</option>
+                        <option value="Voz">Resposta à Voz</option>
+                        <option value="Dor">Resposta à Dor</option>
+                        <option value="Inconsciente">Inconsciente</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div id="erroAfericao" class="text-danger small fw-bold mt-3" style="display: none;">
+                Preencha todos os campos corretamente!
+            </div>
+
+          </div>
+          <div class="modal-footer justify-content-end bg-white">
+            <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-primary px-4 fw-bold" onclick="salvarNovaAfericao()">Salvar no Prontuário</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function salvarNovaAfericao() {
+            const freq_resp = document.getElementById('na_freq_resp').value;
+            const sat_o2 = document.getElementById('na_sat_o2').value;
+            const temp = document.getElementById('na_temp').value;
+            const pas = document.getElementById('na_pas').value;
+            const fc = document.getElementById('na_fc').value;
+
+            if (freq_resp === "" || sat_o2 === "" || temp === "" || pas === "" || fc === "") {
+                document.getElementById('erroAfericao').style.display = 'block';
+                return; 
+            }
+
+            const dados = {
+                atendimento_id: '',
+                nome: document.getElementById('na_nome').value,
+                cpf: document.getElementById('na_cpf').value,
+                nascimento: document.getElementById('na_nascimento').value,
+                mae: document.getElementById('na_mae').value,
+                protocolo: document.getElementById('na_protocolo').value,
+                
+                freq_respiratoria: freq_resp,
+                saturacao_o2: sat_o2,
+                uso_o2_suplementar: document.getElementById('na_uso_o2').value,
+                temperatura: temp,
+                pressao_sistolica: pas,
+                freq_cardiaca: fc,
+                nivel_consciencia: document.getElementById('na_consciencia').value
+            };
+
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+            fetch('/api/salvar-triagem/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify(dados)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.sucesso) {
+                    window.location.reload();
+                } else {
+                    alert('Erro ao salvar aferição: ' + data.erro);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

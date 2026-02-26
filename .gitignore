@@ -1,0 +1,16 @@
+# Ambientes Virtuais
+venv/
+.venv/
+env/
+
+# Arquivos compilados do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Banco de dados local (Não queremos subir os dados de teste para o servidor)
+db.sqlite3
+
+# Arquivos de sistema operacional
+.DS_Store
+Thumbs.db

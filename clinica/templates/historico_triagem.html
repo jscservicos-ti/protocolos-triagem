@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Histórico de Triagem - Sistema Clínico</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; padding-bottom: 50px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; border: none; }
+        .navbar { background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
+        /* Adicionando um pequeno efeito hover para o link do nome */
+        .paciente-link:hover { text-decoration: underline !important; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bold text-primary me-4" href="{% url 'medico' %}">Sistema Clínico</a>
+            
+            <div class="navbar-nav me-auto align-items-center">
+                <a class="nav-link fw-bold" href="{% url 'medico' %}">Monitorar</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' or request.user.perfilacesso.tipo_perfil == 'PADRAO' %}
+                <a class="nav-link fw-bold" href="{% url 'triagem' %}">Nova Triagem</a>
+                <a class="nav-link active fw-bold text-primary" href="{% url 'historico_triagem' %}">Histórico</a>
+                {% endif %}
+                
+                <a class="nav-link fw-bold" href="{% url 'relatorios' %}">Relatórios</a>
+                
+                {% if request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
+                    <a href="{% url 'painel_admin' %}" class="btn btn-sm btn-warning text-dark fw-bold rounded-pill px-3 ms-4 shadow-sm">
+                        <i class="bi bi-shield-lock-fill me-1"></i> Administração Central
+                    </a>
+                {% endif %}
+            </div>
+            
+            <div class="d-flex align-items-center">
+                <div class="text-end me-3">
+                    <div class="fw-bold fs-6 text-dark">{{ nome_usuario|title }}</div>
+                    <div class="text-muted" style="font-size: 0.8rem;">{{ perfil_nome }}</div>
+                </div>
+                <a href="{% url 'sair' %}" class="btn btn-outline-secondary btn-sm">Sair</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container px-4">
+    <div class="card border">
+        <h5 class="mb-4 text-primary">Consulta de Triagens Realizadas</h5>
+        
+        <form method="GET" class="row g-3 mb-4 align-items-end" id="formBusca">
+            <div class="col-md-5">
+                <label class="form-label text-muted small fw-bold">Buscar Paciente</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control" name="busca" value="{{ busca }}" placeholder="Digite o nome...">
+                </div>
+            </div>
+            
+            <div class="col-md-3">
+                <label class="form-label text-muted small fw-bold">Período</label>
+                <select class="form-select" id="filtroPeriodo" name="periodo" onchange="verificarFiltro()">
+                    <option value="hoje" {% if periodo_atual == 'hoje' %}selected{% endif %}>Plantão de Hoje</option>
+                    <option value="7dias" {% if periodo_atual == '7dias' %}selected{% endif %}>Últimos 7 dias</option>
+                    <option value="30dias" {% if periodo_atual == '30dias' %}selected{% endif %}>Últimos 30 dias</option>
+                    <option value="todos" {% if periodo_atual == 'todos' %}selected{% endif %}>Todo o Histórico</option>
+                    <option value="personalizado" {% if periodo_atual == 'personalizado' %}selected{% endif %}>Personalizado</option>
+                </select>
+            </div>
+
+            <div id="datasPersonalizadas" class="col-md-3 d-flex {% if periodo_atual != 'personalizado' %}d-none{% endif %}">
+                <div class="me-2">
+                    <label class="form-label text-muted small fw-bold mb-0">Início:</label>
+                    <input type="date" class="form-control form-control-sm" name="data_inicio" value="{{ data_inicio }}">
+                </div>
+                <div>
+                    <label class="form-label text-muted small fw-bold mb-0">Fim:</label>
+                    <input type="date" class="form-control form-control-sm" name="data_fim" value="{{ data_fim }}">
+                </div>
+            </div>
+
+            <div class="col-md-1">
+                <button type="submit" class="btn btn-primary w-100">Filtrar</button>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle border">
+                <thead class="table-light">
+                    <tr>
+                        <th>Paciente</th>
+                        <th>Data/Hora</th>
+                        <th>Protocolo / Score</th>
+                        <th>Risco</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for atendimento in atendimentos %}
+                    <tr>
+                        <td class="fw-bold">
+                            <a href="{% url 'paciente_detalhe' atendimento.id %}?origem=historico" class="text-decoration-none paciente-link text-dark" title="Ver detalhes do paciente">
+                            {{ atendimento.paciente.nome_completo|title }}
+                            </a>
+                        </td>
+                        <td class="text-muted small">{{ atendimento.data_hora_triagem|date:"d/m/Y H:i" }}</td>
+                        <td>{{ atendimento.protocolo }} <span class="badge bg-secondary ms-1">{{ atendimento.score_final }}</span></td>
+                        <td>
+                            <span class="badge 
+                                {% if atendimento.classificacao_risco == 'Alto' %} bg-danger
+                                {% elif atendimento.classificacao_risco == 'Médio' %} bg-warning text-dark
+                                {% else %} bg-success {% endif %}">
+                                {{ atendimento.classificacao_risco }}
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            {% if atendimento.pode_editar %}
+                                <a href="{% url 'editar_triagem' atendimento.id %}" class="btn btn-sm btn-outline-primary me-1" title="Editar Triagem (Prazo de 5 min)"><i class="bi bi-pencil-square"></i></a>
+                                
+                                <button type="button" onclick="abrirModalExclusao(`{% url 'excluir_triagem' atendimento.id %}`)" class="btn btn-sm btn-outline-danger" title="Excluir Triagem"><i class="bi bi-trash"></i></button>
+                            {% else %}
+                                <button class="btn btn-sm btn-outline-secondary me-1 disabled" title="{{ atendimento.motivo_bloqueio }}"><i class="bi bi-pencil-square"></i></button>
+                                <button class="btn btn-sm btn-outline-secondary disabled" title="{{ atendimento.motivo_bloqueio }}"><i class="bi bi-trash"></i></button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">Nenhuma triagem encontrada para os filtros selecionados.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div> 
+
+<div class="modal fade" id="modalExclusao" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>Atenção</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body text-center fs-5 py-4">
+        Tem certeza que deseja <strong>EXCLUIR</strong> esta triagem? <br>
+        <span class="text-muted fs-6 d-block mt-2">Esta ação não pode ser desfeita e será registrada.</span>
+      </div>
+      <div class="modal-footer justify-content-center bg-light">
+        <button type="button" class="btn btn-outline-secondary px-4 fw-bold" data-bs-dismiss="modal">Não</button>
+        <a id="btnConfirmarExclusao" href="#" class="btn btn-danger px-4 fw-bold">Sim, Excluir</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    function verificarFiltro() {
+        var select = document.getElementById('filtroPeriodo');
+        var datasDiv = document.getElementById('datasPersonalizadas');
+        
+        if (select.value === 'personalizado') {
+            datasDiv.classList.remove('d-none');
+        } else {
+            datasDiv.classList.add('d-none');
+            document.getElementById('formBusca').submit();
+        }
+    }
+
+    function abrirModalExclusao(urlExclusao) {
+        document.getElementById('btnConfirmarExclusao').href = urlExclusao;
+        var myModal = new bootstrap.Modal(document.getElementById('modalExclusao'));
+        myModal.show();
+    }
+</script>
+</body>
+</html>

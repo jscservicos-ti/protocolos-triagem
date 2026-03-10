@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,12 +21,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-4+ve_*^v&-m5=i*9prm(f7%@acb-gipm*9$3@g+04f+(8-=w8l'
+SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['77.37.126.240','*','https://www.google.com/url?sa=E&source=gmail&q=saude.hejagoias.com']
+ALLOWED_HOSTS = ['187.77.53.140', 'jscsaude.com.br', 'triagem.jscsaude.com.br']
 
 
 # Application definition
@@ -126,3 +127,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Redireciona usuários não logados para a tela inicial
 LOGIN_URL = 'login'
+
+
+# === SEGURANÇA NA VPS ===
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    CSRF_TRUSTED_ORIGINS = ['https://triagem.jscsaude.com.br']
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

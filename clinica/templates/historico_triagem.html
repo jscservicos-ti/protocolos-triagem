@@ -10,7 +10,6 @@
         body { background-color: #f8f9fa; padding-bottom: 50px; }
         .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; border: none; }
         .navbar { background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
-        /* Adicionando um pequeno efeito hover para o link do nome */
         .paciente-link:hover { text-decoration: underline !important; }
     </style>
 </head>
@@ -98,19 +97,20 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for atendimento in atendimentos %}
+                    {% for atendimento in page_obj %}
                     <tr>
                         <td class="fw-bold">
                             <a href="{% url 'paciente_detalhe' atendimento.id %}?origem=historico" class="text-decoration-none paciente-link text-dark" title="Ver detalhes do paciente">
                             {{ atendimento.paciente.nome_completo|title }}
                             </a>
                         </td>
-                        <td class="text-muted small">{{ atendimento.data_hora_triagem|date:"d/m/Y H:i" }}</td>
+                        <td class="text-muted small">{{ atendimento.data_hora_triagem|date:"d/m/Y \à\s H:i" }}</td>
                         <td>{{ atendimento.protocolo }} <span class="badge bg-secondary ms-1">{{ atendimento.score_final }}</span></td>
                         <td>
                             <span class="badge 
                                 {% if atendimento.classificacao_risco == 'Alto' %} bg-danger
                                 {% elif atendimento.classificacao_risco == 'Médio' %} bg-warning text-dark
+                                {% elif atendimento.classificacao_risco == 'Intermediário' %} bg-info text-dark
                                 {% else %} bg-success {% endif %}">
                                 {{ atendimento.classificacao_risco }}
                             </span>
@@ -134,6 +134,23 @@
                 </tbody>
             </table>
         </div>
+
+        {% if page_obj.has_other_pages %}
+        <nav aria-label="Paginação do Histórico" class="mt-4">
+            <ul class="pagination justify-content-center mb-0">
+                {% if page_obj.has_previous %}
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&{{ url_params }}">Anterior</a></li>
+                {% endif %}
+                
+                <li class="page-item disabled"><span class="page-link fw-bold text-dark">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span></li>
+                
+                {% if page_obj.has_next %}
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&{{ url_params }}">Próxima</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+
     </div>
 </div> 
 

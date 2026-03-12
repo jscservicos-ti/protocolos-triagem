@@ -14,6 +14,7 @@ from django.contrib.auth import logout
 from django.utils import timezone
 from datetime import timedelta
 import re
+from django.core.paginator import Paginator 
 
 def pagina_login(request):
     erro = None
@@ -25,7 +26,6 @@ def pagina_login(request):
         user = authenticate(request, username=usuario_digitado, password=senha_digitada)
 
         if user is not None:
-            # Trava extra: Verifica se o usuário está inativo
             if not user.is_active:
                 return render(request, 'login.html', {'erro': "Esta conta foi inativada pelo administrador."})
                 
@@ -69,13 +69,16 @@ def verificar_inativos_24h(unidade_id):
 @login_required
 def pagina_triagem(request):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
-    # PERMISSÃO ATUALIZADA: Padrão acessa
     if perfil.tipo_perfil not in ['ENFERMAGEM', 'ADMIN', 'PADRAO']:
         return redirect('medico')
         
+    unidade_id = request.session.get('unidade_id')
+    unidade_nome = UnidadeSaude.objects.get(id=unidade_id).nome if unidade_id else "Não identificada"
+        
     contexto = {
         'nome_usuario': request.user.first_name or request.user.username,
-        'perfil_nome': perfil.get_tipo_perfil_display()
+        'perfil_nome': perfil.get_tipo_perfil_display(),
+        'unidade_nome': unidade_nome
     }
     return render(request, 'triagem.html', contexto)
 
@@ -88,7 +91,6 @@ def pagina_medico(request):
         return redirect('sair')
         
     unidade_ativa = UnidadeSaude.objects.get(id=unidade_id)
-    
     verificar_inativos_24h(unidade_id)
     
     atendimentos = AtendimentoTriagem.objects.filter(unidade=unidade_ativa, finalizado=False)
@@ -127,7 +129,7 @@ def pagina_medico(request):
 
     total_pacientes = len(atendimentos_unicos)
     alto_risco = sum(1 for a in atendimentos_unicos if a.classificacao_risco == 'Alto')
-    medio_risco = sum(1 for a in atendimentos_unicos if a.classificacao_risco == 'Médio')
+    medio_risco = sum(1 for a in atendimentos_unicos if a.classificacao_risco in ['Médio', 'Intermediário'])
     baixo_risco = sum(1 for a in atendimentos_unicos if a.classificacao_risco == 'Baixo')
     
     alertas_pendentes = [a for a in atendimentos_unicos if a.classificacao_risco == 'Alto' and not a.alerta_reconhecido]
@@ -137,7 +139,7 @@ def pagina_medico(request):
     if risco_escolhido == 'Alto':
         grade_atendimentos = [a for a in grade_atendimentos if a.classificacao_risco == 'Alto']
     elif risco_escolhido == 'Médio':
-        grade_atendimentos = [a for a in grade_atendimentos if a.classificacao_risco == 'Médio']
+        grade_atendimentos = [a for a in grade_atendimentos if a.classificacao_risco in ['Médio', 'Intermediário']]
     elif risco_escolhido == 'Baixo':
         grade_atendimentos = [a for a in grade_atendimentos if a.classificacao_risco == 'Baixo']
 
@@ -180,7 +182,6 @@ def pagina_paciente(request, id):
     ).order_by('-data_hora_triagem')
     
     ultimo_atendimento = historico_qs.first()
-    
     is_finalizado = ultimo_atendimento.finalizado if ultimo_atendimento else False
     
     pode_finalizar = False
@@ -190,7 +191,6 @@ def pagina_paciente(request, id):
     
     agora = timezone.now()
 
-    # PERMISSÃO ATUALIZADA: Padrão acessa os controles de alta
     if perfil.tipo_perfil in ['MEDICO', 'ENFERMAGEM', 'ADMIN', 'PADRAO']:
         if is_finalizado:
             if ultimo_atendimento.data_hora_finalizacao:
@@ -204,7 +204,6 @@ def pagina_paciente(request, id):
             if not tem_alerta_pendente:
                 pode_finalizar = True
                 
-        # PERMISSÃO ATUALIZADA: Padrão pode fazer aferições
         if perfil.tipo_perfil in ['ENFERMAGEM', 'ADMIN', 'PADRAO'] and not is_finalizado:
             tem_alerta_pendente = historico_qs.filter(finalizado=False, classificacao_risco='Alto', alerta_reconhecido=False).exists()
             if not tem_alerta_pendente:
@@ -220,6 +219,30 @@ def pagina_paciente(request, id):
         else:
             afericao.pode_editar = False
             
+        dados_calc = {
+            'freq_respiratoria': afericao.freq_respiratoria,
+            'saturacao_o2': afericao.saturacao_o2,
+            'uso_o2_suplementar': 'Sim' if afericao.uso_o2_suplementar else 'Não',
+            'temperatura': afericao.temperatura,
+            'pressao_sistolica': afericao.pressao_sistolica,
+            'pressao_diastolica': afericao.pressao_diastolica,
+            'freq_cardiaca': afericao.freq_cardiaca,
+            'nivel_consciencia': afericao.nivel_consciencia,
+            'debito_urinario': afericao.debito_urinario,
+        }
+        
+        if afericao.protocolo == 'NEWS':
+            _, _, conduta, extrato = calcular_score_news(dados_calc)
+        elif afericao.protocolo == 'PEWS':
+            _, _, conduta, extrato = calcular_score_pews(dados_calc)
+        elif afericao.protocolo == 'MEOWS':
+            _, _, conduta, extrato = calcular_score_meows(dados_calc)
+        else:
+            conduta = "Orientação não disponível."
+            extrato = {}
+            
+        afericao.extrato = extrato
+        afericao.conduta = conduta 
         historico.append(afericao)
 
     contexto = {
@@ -240,12 +263,10 @@ def pagina_paciente(request, id):
 @login_required
 def finalizar_atendimento(request, id):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
-    # PERMISSÃO ATUALIZADA
     if perfil.tipo_perfil not in ['MEDICO', 'ENFERMAGEM', 'ADMIN', 'PADRAO']:
         return redirect('paciente_detalhe', id=id)
         
     atendimento = get_object_or_404(AtendimentoTriagem, id=id)
-    
     historico_aberto = AtendimentoTriagem.objects.filter(
         paciente=atendimento.paciente,
         unidade=atendimento.unidade,
@@ -258,18 +279,15 @@ def finalizar_atendimento(request, id):
             
     agora = timezone.now()
     historico_aberto.update(finalizado=True, data_hora_finalizacao=agora, usuario_finalizou=request.user)
-    
     return redirect('paciente_detalhe', id=id)
 
 @login_required
 def reabrir_atendimento(request, id):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
-    # PERMISSÃO ATUALIZADA
     if perfil.tipo_perfil not in ['MEDICO', 'ENFERMAGEM', 'ADMIN', 'PADRAO']:
         return redirect('paciente_detalhe', id=id)
         
     atendimento = get_object_or_404(AtendimentoTriagem, id=id)
-    
     limite = timezone.now() - timedelta(minutes=60)
     historico_recente = AtendimentoTriagem.objects.filter(
         paciente=atendimento.paciente,
@@ -286,7 +304,6 @@ def reconhecer_alerta(request, id):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
     pagina_anterior = request.META.get('HTTP_REFERER', 'medico')
     
-    # PERMISSÃO ATUALIZADA
     if perfil.tipo_perfil not in ['MEDICO', 'ADMIN', 'PADRAO']:
         return redirect(pagina_anterior)
         
@@ -307,7 +324,6 @@ def sair_sistema(request):
 def buscar_unidades_usuario(request):
     username = request.GET.get('usuario', None)
     dados = []
-    
     if username:
         try:
             user = User.objects.get(username=username)
@@ -317,41 +333,64 @@ def buscar_unidades_usuario(request):
                 dados.append({'id': unidade.id, 'nome': unidade.nome})
         except (User.DoesNotExist, PerfilAcesso.DoesNotExist):
             pass 
-            
     return JsonResponse({'unidades': dados})
 
+# ==========================================
+# CÁLCULOS DOS PROTOCOLOS
+# ==========================================
 def calcular_score_news(dados):
     score = 0
+    extrato = {}
     try:
         fr = int(dados.get('freq_respiratoria') or 0)
-        if fr <= 8 or fr >= 25: score += 3
-        elif fr in range(21, 25): score += 2
-        elif fr in range(9, 12): score += 1
+        pts_fr = 0
+        if fr <= 8 or fr >= 25: pts_fr = 3
+        elif fr in range(21, 25): pts_fr = 2
+        elif fr in range(9, 12): pts_fr = 1
+        score += pts_fr
+        extrato['freq_respiratoria'] = {'valor': f"{fr} irpm", 'pontos': pts_fr}
 
         sat = int(dados.get('saturacao_o2') or 0)
-        if sat <= 91: score += 3
-        elif sat in range(92, 94): score += 2
-        elif sat in range(94, 96): score += 1
+        pts_sat = 0
+        if sat <= 91: pts_sat = 3
+        elif sat in range(92, 94): pts_sat = 2
+        elif sat in range(94, 96): pts_sat = 1
+        score += pts_sat
+        extrato['saturacao_o2'] = {'valor': f"{sat}%", 'pontos': pts_sat}
 
-        if dados.get('uso_o2_suplementar') == 'Sim': score += 2
+        uso_o2 = dados.get('uso_o2_suplementar')
+        pts_o2 = 2 if uso_o2 == 'Sim' else 0
+        score += pts_o2
+        extrato['uso_o2_suplementar'] = {'valor': uso_o2, 'pontos': pts_o2}
 
         temp = float(dados.get('temperatura') or 0)
-        if temp <= 35.0: score += 3
-        elif temp >= 39.1: score += 2
-        elif 35.1 <= temp <= 36.0 or 38.1 <= temp <= 39.0: score += 1
+        pts_temp = 0
+        if temp <= 35.0: pts_temp = 3
+        elif temp >= 39.1: pts_temp = 2
+        elif 35.1 <= temp <= 36.0 or 38.1 <= temp <= 39.0: pts_temp = 1
+        score += pts_temp
+        extrato['temperatura'] = {'valor': f"{temp} °C", 'pontos': pts_temp}
 
         pas = int(dados.get('pressao_sistolica') or 0)
-        if pas <= 90 or pas >= 220: score += 3
-        elif 91 <= pas <= 100: score += 2
-        elif 101 <= pas <= 110: score += 1
+        pts_pas = 0
+        if pas <= 90 or pas >= 220: pts_pas = 3
+        elif 91 <= pas <= 100: pts_pas = 2
+        elif 101 <= pas <= 110: pts_pas = 1
+        score += pts_pas
+        extrato['pressao_sistolica'] = {'valor': f"{pas} mmHg", 'pontos': pts_pas}
 
         fc = int(dados.get('freq_cardiaca') or 0)
-        if fc <= 40 or fc >= 131: score += 3
-        elif 111 <= fc <= 130: score += 2
-        elif 41 <= fc <= 50 or 91 <= fc <= 110: score += 1
+        pts_fc = 0
+        if fc <= 40 or fc >= 131: pts_fc = 3
+        elif 111 <= fc <= 130: pts_fc = 2
+        elif 41 <= fc <= 50 or 91 <= fc <= 110: pts_fc = 1
+        score += pts_fc
+        extrato['freq_cardiaca'] = {'valor': f"{fc} bpm", 'pontos': pts_fc}
 
         consciencia = dados.get('nivel_consciencia')
-        if consciencia != 'Alerta': score += 3
+        pts_cons = 3 if consciencia != 'Alerta' else 0
+        score += pts_cons
+        extrato['nivel_consciencia'] = {'valor': consciencia, 'pontos': pts_cons}
 
         if score >= 7:
             risco = 'Alto'
@@ -362,34 +401,50 @@ def calcular_score_news(dados):
         else:
             risco = 'Baixo'
             conduta = 'Manter monitoramento padrão da unidade.'
-        return score, risco, conduta
+        return score, risco, conduta, extrato
     except ValueError:
-        return 0, 'Baixo', 'Erro ao calcular.'
+        return 0, 'Baixo', 'Erro ao calcular.', {}
 
 def calcular_score_pews(dados):
     score = 0
+    extrato = {}
     try:
         consciencia = dados.get('nivel_consciencia')
-        if consciencia in ['Confusão', 'Voz']: score += 1
-        elif consciencia == 'Dor': score += 2
-        elif consciencia == 'Inconsciente': score += 3
+        pts_cons = 0
+        if consciencia in ['Confusão', 'Voz']: pts_cons = 1
+        elif consciencia == 'Dor': pts_cons = 2
+        elif consciencia == 'Inconsciente': pts_cons = 3
+        score += pts_cons
+        extrato['nivel_consciencia'] = {'valor': consciencia, 'pontos': pts_cons}
 
         fc = int(dados.get('freq_cardiaca') or 0)
-        if fc < 60 or fc > 160: score += 3
-        elif fc > 140: score += 2
-        elif fc < 70 or fc > 120: score += 1
+        pts_fc = 0
+        if fc < 60 or fc > 160: pts_fc = 3
+        elif fc > 140: pts_fc = 2
+        elif fc < 70 or fc > 120: pts_fc = 1
+        score += pts_fc
+        extrato['freq_cardiaca'] = {'valor': f"{fc} bpm", 'pontos': pts_fc}
 
         fr = int(dados.get('freq_respiratoria') or 0)
-        if fr < 15 or fr > 50: score += 3
-        elif fr > 40: score += 2
-        elif fr < 20 or fr > 30: score += 1
+        pts_fr = 0
+        if fr < 15 or fr > 50: pts_fr = 3
+        elif fr > 40: pts_fr = 2
+        elif fr < 20 or fr > 30: pts_fr = 1
+        score += pts_fr
+        extrato['freq_respiratoria'] = {'valor': f"{fr} irpm", 'pontos': pts_fr}
 
         sat = int(dados.get('saturacao_o2') or 0)
-        if sat <= 89: score += 3
-        elif 90 <= sat <= 93: score += 2
-        elif 94 <= sat <= 95: score += 1
+        pts_sat = 0
+        if sat <= 89: pts_sat = 3
+        elif 90 <= sat <= 93: pts_sat = 2
+        elif 94 <= sat <= 95: pts_sat = 1
+        score += pts_sat
+        extrato['saturacao_o2'] = {'valor': f"{sat}%", 'pontos': pts_sat}
 
-        if dados.get('uso_o2_suplementar') == 'Sim': score += 2
+        uso_o2 = dados.get('uso_o2_suplementar')
+        pts_o2 = 2 if uso_o2 == 'Sim' else 0
+        score += pts_o2
+        extrato['uso_o2_suplementar'] = {'valor': uso_o2, 'pontos': pts_o2}
 
         if score >= 7:
             risco = 'Alto'
@@ -400,50 +455,102 @@ def calcular_score_pews(dados):
         else:
             risco = 'Baixo'
             conduta = 'PEWS Normal: Manter monitoramento de rotina.'
-        return score, risco, conduta
+        return score, risco, conduta, extrato
     except ValueError:
-        return 0, 'Baixo', 'Erro ao calcular.'
+        return 0, 'Baixo', 'Erro ao calcular.', {}
 
 def calcular_score_meows(dados):
     score = 0
+    extrato = {}
+    tem_parametro_critico = False 
+    
     try:
         fr = int(dados.get('freq_respiratoria') or 0)
-        if fr < 12 or fr > 25: score += 3
-        elif 21 <= fr <= 25: score += 1
-
-        sat = int(dados.get('saturacao_o2') or 0)
-        if sat < 92: score += 3
-        elif 92 <= sat <= 95: score += 1
-
-        temp = float(dados.get('temperatura') or 0)
-        if temp < 35.0 or temp > 38.0: score += 3
-        elif 35.0 <= temp <= 35.9 or 37.5 <= temp <= 38.0: score += 1
+        pts_fr = 0
+        if fr <= 8 or 21 <= fr <= 29: pts_fr = 2
+        elif fr >= 30: pts_fr = 3
+        elif 15 <= fr <= 20: pts_fr = 1
+        elif 9 <= fr <= 14: pts_fr = 0
+        if pts_fr == 3: tem_parametro_critico = True
+        score += pts_fr
+        extrato['freq_respiratoria'] = {'valor': f"{fr} irpm", 'pontos': pts_fr}
 
         fc = int(dados.get('freq_cardiaca') or 0)
-        if fc < 50 or fc > 120: score += 3
-        elif 111 <= fc <= 120: score += 2
-        elif 50 <= fc <= 59 or 101 <= fc <= 110: score += 1
+        pts_fc = 0
+        if fc <= 40 or 111 <= fc <= 129: pts_fc = 2
+        elif fc >= 130: pts_fc = 3
+        elif 41 <= fc <= 50 or 101 <= fc <= 110: pts_fc = 1
+        elif 51 <= fc <= 100: pts_fc = 0
+        if pts_fc == 3: tem_parametro_critico = True
+        score += pts_fc
+        extrato['freq_cardiaca'] = {'valor': f"{fc} bpm", 'pontos': pts_fc}
+
+        temp = float(dados.get('temperatura') or 0)
+        pts_temp = 0
+        if temp <= 35.0 or 37.5 <= temp <= 38.9: pts_temp = 2
+        elif temp >= 39.0: pts_temp = 3
+        elif 35.1 <= temp <= 37.4: pts_temp = 0
+        if pts_temp == 3: tem_parametro_critico = True
+        score += pts_temp
+        extrato['temperatura'] = {'valor': f"{temp} °C", 'pontos': pts_temp}
 
         pas = int(dados.get('pressao_sistolica') or 0)
-        if pas < 90 or pas >= 160: score += 3
-        elif 150 <= pas <= 159: score += 2
-        elif 90 <= pas <= 99 or 140 <= pas <= 149: score += 1
+        pts_pas = 0
+        if pas <= 70 or pas >= 160: pts_pas = 3
+        elif 71 <= pas <= 79 or 150 <= pas <= 159: pts_pas = 2
+        elif 80 <= pas <= 89 or 140 <= pas <= 149: pts_pas = 1
+        elif 90 <= pas <= 139: pts_pas = 0
+        if pts_pas == 3: tem_parametro_critico = True
+        score += pts_pas
+        extrato['pressao_sistolica'] = {'valor': f"{pas} mmHg", 'pontos': pts_pas}
+
+        pad_raw = dados.get('pressao_diastolica')
+        if pad_raw:
+            pad = int(pad_raw)
+            pts_pad = 0
+            if pad >= 110: pts_pad = 3
+            elif 100 <= pad <= 109: pts_pad = 2
+            elif pad <= 45 or 90 <= pad <= 99: pts_pad = 1
+            elif 46 <= pad <= 89: pts_pad = 0
+            if pts_pad == 3: tem_parametro_critico = True
+            score += pts_pad
+            extrato['pressao_diastolica'] = {'valor': f"{pad} mmHg", 'pontos': pts_pad}
 
         consciencia = dados.get('nivel_consciencia')
-        if consciencia != 'Alerta': score += 3
+        pts_cons = 3 if consciencia != 'Alerta' else 0
+        if pts_cons == 3: tem_parametro_critico = True
+        score += pts_cons
+        extrato['nivel_consciencia'] = {'valor': consciencia, 'pontos': pts_cons}
 
-        if score >= 6 or (score >= 3 and consciencia != 'Alerta'):
+        debito_raw = dados.get('debito_urinario')
+        pts_debito = 0
+        valor_debito_str = "Não mensurado"
+        if debito_raw:
+            debito = float(debito_raw)
+            valor_debito_str = f"{debito} mL/h"
+            if debito <= 10: pts_debito = 3
+            elif debito <= 30: pts_debito = 2
+        if pts_debito == 3: tem_parametro_critico = True
+        score += pts_debito
+        extrato['debito_urinario'] = {'valor': valor_debito_str, 'pontos': pts_debito}
+
+        if score >= 7 or tem_parametro_critico:
             risco = 'Alto'
-            conduta = 'MEOWS Crítico: Avaliação obstétrica urgente.'
+            conduta = 'Frequência de Monitorização: Alto - Contínua. Enfermagem deverá comunicar a equipe médica para avaliação da paciente. Intensificar a observação, com aumento da frequência de monitorização, incluindo saturação de oxigênio e monitorização fetal. Considerar transferência para unidade de suporte intensivo. Na presença de score ≥4 ou score 3 em qualquer parâmetro, considerar CPAV (SEPSE, HPP, ECLAMPSIA).'
         elif score >= 4:
             risco = 'Médio'
-            conduta = 'MEOWS Atenção: Repetir sinais em 1h.'
+            conduta = 'Frequência de Monitorização: Médio - Mínima de 1 hora. Enfermagem deverá comunicar a equipe médica para avaliação da paciente. Intensificar a observação, com aumento da frequência de monitorização, incluindo saturação de oxigênio e monitorização fetal. Na presença de score ≥4 ou score 3 em qualquer parâmetro considerar CPAV (SEPSE, HPP, ECLAMPSIA).'
+        elif score >= 1:
+            risco = 'Intermediário'
+            conduta = 'Frequência de Monitorização: Intermediário - Mínima de 4 a 6 horas. Manter monitorização do MEOWS enquanto a paciente permanecer no ambiente hospitalar e na transição de cuidados. Comunicar imediatamente à enfermeira qualquer alteração nos parâmetros. Avaliar necessidade de aumento da frequência de monitorização e/ou ajuste dos cuidados. Na presença de score 3 em qualquer parâmetro, considerar CPAV (SEPSE, HPP, ECLAMPSIA).'
         else:
             risco = 'Baixo'
-            conduta = 'MEOWS Normal: Monitoramento padrão.'
-        return score, risco, conduta
+            conduta = 'Frequência de Monitorização: Baixo - Transição de cuidado. Manter monitorização do MEOWS enquanto a paciente permanecer no ambiente hospitalar e na transição de cuidados. Comunicar imediatamente à enfermeira qualquer alteração nos parâmetros. Avaliar necessidade de aumento da frequência de monitorização e/ou ajuste dos cuidados. Na presença de score 3 em qualquer parâmetro, considerar CPAV (SEPSE, HPP, ECLAMPSIA).'
+            
+        return score, risco, conduta, extrato
     except ValueError:
-        return 0, 'Baixo', 'Erro ao calcular.'
+        return 0, 'Baixo', 'Erro ao calcular MEOWS.', {}
+
 
 @login_required
 def salvar_triagem(request):
@@ -463,13 +570,13 @@ def salvar_triagem(request):
             protocolo_escolhido = dados.get('protocolo')
             
             if protocolo_escolhido == 'NEWS':
-                score, risco, conduta = calcular_score_news(dados)
+                score, risco, conduta, extrato = calcular_score_news(dados)
             elif protocolo_escolhido == 'PEWS':
-                score, risco, conduta = calcular_score_pews(dados)
+                score, risco, conduta, extrato = calcular_score_pews(dados)
             elif protocolo_escolhido == 'MEOWS':
-                score, risco, conduta = calcular_score_meows(dados)
+                score, risco, conduta, extrato = calcular_score_meows(dados)
             else:
-                score, risco, conduta = 0, 'Baixo', 'Protocolo não reconhecido.'
+                score, risco, conduta, extrato = 0, 'Baixo', 'Protocolo não reconhecido.', {}
 
             unidade_id = request.session.get('unidade_id')
             if not unidade_id:
@@ -489,6 +596,8 @@ def salvar_triagem(request):
                 atendimento.pressao_sistolica = dados.get('pressao_sistolica') or None
                 atendimento.freq_cardiaca = dados.get('freq_cardiaca') or None
                 atendimento.nivel_consciencia = dados.get('nivel_consciencia')
+                atendimento.pressao_diastolica = dados.get('pressao_diastolica') or None
+                atendimento.debito_urinario = dados.get('debito_urinario') or None
                 atendimento.score_final = score
                 atendimento.classificacao_risco = risco
                 atendimento.save()
@@ -505,19 +614,19 @@ def salvar_triagem(request):
                     pressao_sistolica=dados.get('pressao_sistolica') or None,
                     freq_cardiaca=dados.get('freq_cardiaca') or None,
                     nivel_consciencia=dados.get('nivel_consciencia'),
+                    pressao_diastolica=dados.get('pressao_diastolica') or None,
+                    debito_urinario=dados.get('debito_urinario') or None,
                     score_final=score,
                     classificacao_risco=risco
                 )
 
-            return JsonResponse({'sucesso': True, 'score': score, 'risco': risco, 'conduta': conduta})
+            return JsonResponse({'sucesso': True, 'score': score, 'risco': risco, 'conduta': conduta, 'extrato': extrato})
         except Exception as e:
             return JsonResponse({'sucesso': False, 'erro': str(e)})
 
 @login_required
 def historico_triagem(request):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
-    
-    # PERMISSÃO ATUALIZADA
     if perfil.tipo_perfil not in ['ENFERMAGEM', 'ADMIN', 'PADRAO']:
         return redirect('medico')
         
@@ -554,8 +663,18 @@ def historico_triagem(request):
         atendimentos = atendimentos.filter(paciente__nome_completo__icontains=busca_nome)
         
     atendimentos = atendimentos.order_by('-data_hora_triagem')
+
+    # PAGINAÇÃO DO HISTÓRICO
+    paginator = Paginator(atendimentos, 50)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    query_params = request.GET.copy()
+    if 'page' in query_params:
+        del query_params['page']
+    url_params = query_params.urlencode()
     
-    for atendimento in atendimentos:
+    for atendimento in page_obj:
         tempo_passado = agora - atendimento.data_hora_triagem
         passou_5_min = tempo_passado.total_seconds() > 300 
         
@@ -578,14 +697,14 @@ def historico_triagem(request):
         'data_inicio': data_inicio,
         'data_fim': data_fim,
         'busca': busca_nome,
-        'atendimentos': atendimentos
+        'page_obj': page_obj,
+        'url_params': url_params
     }
     return render(request, 'historico_triagem.html', contexto)
 
 @login_required
 def excluir_triagem(request, id):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
-    # PERMISSÃO ATUALIZADA
     if perfil.tipo_perfil not in ['ENFERMAGEM', 'ADMIN', 'PADRAO']:
         return redirect('historico_triagem')
         
@@ -601,7 +720,6 @@ def excluir_triagem(request, id):
 @login_required
 def editar_triagem(request, id):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
-    # PERMISSÃO ATUALIZADA
     if perfil.tipo_perfil not in ['ENFERMAGEM', 'ADMIN', 'PADRAO']:
         return redirect('historico_triagem')
         
@@ -749,9 +867,6 @@ def salvar_usuario(request):
             return JsonResponse({'sucesso': False, 'erro': str(e)})
     return JsonResponse({'sucesso': False, 'erro': 'Método inválido.'})
 
-# ========================================================
-# NOVAS FUNÇÕES: INATIVAR E EXCLUIR USUÁRIO
-# ========================================================
 @login_required
 def inativar_usuario(request, id):
     perfil = PerfilAcesso.objects.get(usuario=request.user)
@@ -882,6 +997,7 @@ def relatorios(request):
     data_fim = request.GET.get('data_fim', '')
     protocolo_filtro = request.GET.get('protocolo', 'todos')
     exportar = request.GET.get('exportar', '')
+    imprimir = request.GET.get('imprimir', '') 
 
     triagens = AtendimentoTriagem.objects.filter(unidade=unidade).select_related('paciente')
 
@@ -903,7 +1019,7 @@ def relatorios(request):
     totais = {
         'NEWS': {'Alto': 0, 'Médio': 0, 'Baixo': 0},
         'PEWS': {'Alto': 0, 'Médio': 0, 'Baixo': 0},
-        'MEOWS': {'Alto': 0, 'Médio': 0, 'Baixo': 0},
+        'MEOWS': {'Alto': 0, 'Médio': 0, 'Intermediário': 0, 'Baixo': 0},
     }
     for t in triagens:
         prot = t.protocolo.upper()
@@ -932,12 +1048,42 @@ def relatorios(request):
         writer.writerow(['RESUMO GERAL DE CLASSIFICAÇÃO'])
         for prot, riscos in totais.items():
             if protocolo_filtro == 'todos' or protocolo_filtro.upper() == prot:
-                writer.writerow([f'Protocolo {prot}:', f"Alto: {riscos['Alto']}", f"Médio: {riscos['Médio']}", f"Baixo: {riscos['Baixo']}"])
+                if prot == 'MEOWS':
+                    writer.writerow([f'Protocolo {prot}:', f"Alto: {riscos['Alto']}", f"Médio: {riscos['Médio']}", f"Intermediário: {riscos['Intermediário']}", f"Baixo: {riscos['Baixo']}"])
+                else:
+                    writer.writerow([f'Protocolo {prot}:', f"Alto: {riscos['Alto']}", f"Médio: {riscos['Médio']}", f"Baixo: {riscos['Baixo']}"])
 
         return response
 
+    # SE FOR MODO DE IMPRESSÃO COMPLETO (PDF)
+    if imprimir == 'todos':
+        contexto = {
+            'triagens': triagens, 
+            'totais': totais,
+            'unidade_nome': unidade.nome,
+            'periodo_atual': periodo,
+            'data_inicio': data_inicio,
+            'data_fim': data_fim,
+            'protocolo_atual': protocolo_filtro,
+            'nome_usuario': request.user.first_name or request.user.username,
+            'perfil_nome': request.user.perfilacesso.get_tipo_perfil_display(),
+            'modo_impressao': True
+        }
+        return render(request, 'relatorios.html', contexto)
+
+    # PAGINAÇÃO NORMAL DA TELA (só chega aqui se não for Excel nem PDF)
+    paginator = Paginator(triagens, 50)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    query_params = request.GET.copy()
+    if 'page' in query_params:
+        del query_params['page']
+    url_params = query_params.urlencode()
+
     contexto = {
-        'triagens': triagens,
+        'page_obj': page_obj,
+        'url_params': url_params,
         'totais': totais,
         'unidade_nome': unidade.nome,
         'periodo_atual': periodo,
@@ -946,5 +1092,6 @@ def relatorios(request):
         'protocolo_atual': protocolo_filtro,
         'nome_usuario': request.user.first_name or request.user.username,
         'perfil_nome': request.user.perfilacesso.get_tipo_perfil_display(),
+        'modo_impressao': False
     }
     return render(request, 'relatorios.html', contexto)

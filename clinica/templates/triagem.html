@@ -10,9 +10,34 @@
         body { background-color: #f8f9fa; padding-bottom: 50px; }
         .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; border: none; }
         .navbar { background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
+        .table-extrato th, .table-extrato td { padding: 8px 15px; font-size: 0.95rem; }
+
+        /* MÁGICA DA IMPRESSÃO */
+        @media print {
+            body > :not(#print-container) {
+                display: none !important;
+            }
+            body {
+                background-color: white !important;
+                padding-bottom: 0;
+            }
+            #print-container {
+                display: block !important;
+                width: 100%;
+                color: black !important;
+            }
+            .table-bordered, .table-bordered th, .table-bordered td {
+                border: 1px solid #000 !important;
+            }
+            @page {
+                margin: 2cm;
+            }
+        }
     </style>
 </head>
 <body>
+
+    <div id="print-container" class="d-none d-print-block"></div>
 
     <nav class="navbar navbar-expand-lg navbar-light">
         <div class="container-fluid px-4">
@@ -46,8 +71,10 @@
     </nav>
     <div class="container px-4">
 
-    <div id="resultado-score" class="alert shadow position-relative" style="display: none; text-align: center; font-size: 1.2rem; font-weight: bold;">
+    <div id="resultado-score" class="alert shadow position-relative" style="display: none; padding-bottom: 25px;">
     </div>
+
+    <div id="dados-impressao-atual" style="display: none;"></div>
 
     <div class="card border">
         <h5 class="mb-4 text-primary">1. Identificação do Paciente</h5>
@@ -79,7 +106,7 @@
             <h5 class="mb-4 text-primary">2. Protocolo Clínico</h5>
             <div class="mb-4">
                 <label for="protocolo" class="form-label">Selecione o Protocolo a ser aplicado <span class="text-danger">*</span></label>
-                <select class="form-select" id="protocolo" required>
+                <select class="form-select" id="protocolo" required onchange="ajustarCampos()">
                     <option value="" selected disabled>Escolha o protocolo...</option>
                     <option value="NEWS">NEWS (Adulto)</option>
                     <option value="PEWS">PEWS (Pediátrico)</option>
@@ -103,33 +130,43 @@
                 <label class="form-label">Freq. Respiratória (irpm) <span class="text-danger">*</span></label>
                 <input type="number" class="form-control" id="freq_resp" placeholder="Ex: 18">
             </div>
-            <div class="col-md-3">
+            
+            <div class="col-md-3" id="container_sat">
                 <label class="form-label">Saturação O2 (%) <span class="text-danger">*</span></label>
                 <input type="number" class="form-control" id="sat_o2" placeholder="Ex: 96">
             </div>
-            <div class="col-md-3">
+            
+            <div class="col-md-3" id="container_uso_o2">
                 <label class="form-label">Uso de O2 Suplementar? <span class="text-danger">*</span></label>
                 <select class="form-select" id="uso_o2">
                     <option value="Não">Não</option>
                     <option value="Sim">Sim</option>
                 </select>
             </div>
+            
             <div class="col-md-3">
                 <label class="form-label">Temperatura (°C) <span class="text-danger">*</span></label>
                 <input type="number" step="0.1" class="form-control" id="temp" placeholder="Ex: 36.5">
             </div>
         </div>
         
-        <div class="row mb-4">
-            <div class="col-md-4">
+        <div class="row mb-3">
+            <div class="col-md-3">
                 <label class="form-label">Pressão Sistólica (mmHg) <span class="text-danger">*</span></label>
                 <input type="number" class="form-control" id="pas" placeholder="Ex: 120">
             </div>
-            <div class="col-md-4">
+            
+            <div class="col-md-3" id="container_pad" style="display: none;">
+                <label class="form-label">Pressão Diastólica (mmHg) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="pad" placeholder="Ex: 80">
+            </div>
+            
+            <div class="col-md-3">
                 <label class="form-label">Frequência Cardíaca (bpm) <span class="text-danger">*</span></label>
                 <input type="number" class="form-control" id="fc" placeholder="Ex: 80">
             </div>
-            <div class="col-md-4">
+            
+            <div class="col-md-3">
                 <label class="form-label">Nível de Consciência <span class="text-danger">*</span></label>
                 <select class="form-select" id="consciencia">
                     <option value="Alerta">Alerta</option>
@@ -138,6 +175,13 @@
                     <option value="Dor">Resposta à Dor</option>
                     <option value="Inconsciente">Inconsciente</option>
                 </select>
+            </div>
+        </div>
+
+        <div class="row mb-4" id="container_debito" style="display: none;">
+            <div class="col-md-4">
+                <label class="form-label">Débito Urinário (mL/h) <span class="text-muted" style="font-size: 0.8rem;">(Em branco = Não mensurado)</span></label>
+                <input type="number" step="0.1" class="form-control" id="debito_urinario" placeholder="Ex: 25.5">
             </div>
         </div>
 
@@ -184,7 +228,17 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-    let temporizadorAlerta;
+    const titulosExtrato = {
+        'freq_respiratoria': 'Frequência Respiratória',
+        'saturacao_o2': 'Saturação O2',
+        'uso_o2_suplementar': 'Uso O2 Suplementar',
+        'temperatura': 'Temperatura',
+        'pressao_sistolica': 'Pressão Sistólica',
+        'pressao_diastolica': 'Pressão Diastólica',
+        'freq_cardiaca': 'Frequência Cardíaca',
+        'nivel_consciencia': 'Nível de Consciência',
+        'debito_urinario': 'Débito Urinário'
+    };
 
     function mostrarAlerta(mensagem) {
         document.getElementById('textoModalAlerta').innerText = mensagem;
@@ -194,7 +248,32 @@
 
     function fecharAlertaScore() {
         document.getElementById('resultado-score').style.display = 'none';
-        if (temporizadorAlerta) clearTimeout(temporizadorAlerta); 
+    }
+
+    function imprimirTriagemRecemSalva() {
+        const conteudoImpressao = document.getElementById('dados-impressao-atual').innerHTML;
+        document.getElementById('print-container').innerHTML = conteudoImpressao;
+        window.print();
+    }
+
+    function ajustarCampos() {
+        const protocolo = document.getElementById('protocolo').value;
+        const contSat = document.getElementById('container_sat');
+        const contUsoO2 = document.getElementById('container_uso_o2');
+        const contPad = document.getElementById('container_pad');
+        const contDebito = document.getElementById('container_debito');
+
+        if (protocolo === 'MEOWS') {
+            contSat.style.display = 'none';
+            contUsoO2.style.display = 'none';
+            contPad.style.display = 'block';
+            contDebito.style.display = 'block';
+        } else {
+            contSat.style.display = 'block';
+            contUsoO2.style.display = 'block';
+            contPad.style.display = 'none';
+            contDebito.style.display = 'none';
+        }
     }
 
     function mostrarSinaisVitais() {
@@ -205,25 +284,39 @@
             mostrarAlerta('Por favor, preencha o Nome Completo do paciente.');
             return;
         }
-
         if (protocolo === "") {
             mostrarAlerta('Por favor, selecione o Protocolo a ser aplicado.');
             return;
         }
 
+        ajustarCampos();
         document.getElementById('secao-sinais-vitais').style.display = 'block';
     }
 
     function abrirModalConfirmacao() {
+        const protocolo = document.getElementById('protocolo').value;
         const freq_resp = document.getElementById('freq_resp').value;
-        const sat_o2 = document.getElementById('sat_o2').value;
         const temp = document.getElementById('temp').value;
         const pas = document.getElementById('pas').value;
         const fc = document.getElementById('fc').value;
 
-        if (freq_resp === "" || sat_o2 === "" || temp === "" || pas === "" || fc === "") {
-            mostrarAlerta('Atenção: Todos os campos de sinais vitais são obrigatórios. Por favor, preencha as informações pendentes.');
+        if (freq_resp === "" || temp === "" || pas === "" || fc === "") {
+            mostrarAlerta('Atenção: Os campos vitais base (FR, Temp, PAS, FC) são obrigatórios.');
             return; 
+        }
+
+        if (protocolo === 'MEOWS') {
+            const pad = document.getElementById('pad').value;
+            if (pad === "") {
+                mostrarAlerta('Atenção: A Pressão Diastólica é obrigatória para o protocolo MEOWS.');
+                return;
+            }
+        } else {
+            const sat_o2 = document.getElementById('sat_o2').value;
+            if (sat_o2 === "") {
+                mostrarAlerta('Atenção: Saturação de O2 é obrigatória para este protocolo.');
+                return;
+            }
         }
 
         var myModal = new bootstrap.Modal(document.getElementById('modalConfirmacao'));
@@ -248,8 +341,10 @@
             uso_o2_suplementar: document.getElementById('uso_o2').value,
             temperatura: document.getElementById('temp').value,
             pressao_sistolica: document.getElementById('pas').value,
+            pressao_diastolica: document.getElementById('pad').value,
             freq_cardiaca: document.getElementById('fc').value,
-            nivel_consciencia: document.getElementById('consciencia').value
+            nivel_consciencia: document.getElementById('consciencia').value,
+            debito_urinario: document.getElementById('debito_urinario').value
         };
 
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
@@ -268,17 +363,148 @@
                 const resultadoDiv = document.getElementById('resultado-score');
                 resultadoDiv.style.display = 'block';
                 
-                if (data.risco === 'Alto') resultadoDiv.className = 'alert alert-danger mt-4 mb-4 shadow position-relative';
-                else if (data.risco === 'Médio') resultadoDiv.className = 'alert alert-warning mt-4 mb-4 shadow position-relative';
-                else resultadoDiv.className = 'alert alert-success mt-4 mb-4 shadow position-relative';
+                let bgTable = '';
+                if (data.risco === 'Alto') {
+                    resultadoDiv.className = 'alert alert-danger mt-4 mb-4 shadow position-relative';
+                    bgTable = 'table-danger';
+                } else if (data.risco === 'Médio') {
+                    resultadoDiv.className = 'alert alert-warning mt-4 mb-4 shadow position-relative';
+                    bgTable = 'table-warning';
+                } else if (data.risco === 'Intermediário') {
+                    resultadoDiv.className = 'alert alert-info mt-4 mb-4 shadow position-relative';
+                    bgTable = 'table-info';
+                } else {
+                    resultadoDiv.className = 'alert alert-success mt-4 mb-4 shadow position-relative';
+                    bgTable = 'table-success';
+                }
+
+                let linhasTabela = '';
+                let linhasTabelaPrint = '';
+                
+                if (data.extrato) {
+                    for (const chave in data.extrato) {
+                        let nomeExibicao = titulosExtrato[chave] || chave;
+                        let item = data.extrato[chave];
+                        let spanPontos = item.pontos > 0 ? `<span class="badge bg-danger rounded-pill">+${item.pontos}</span>` : `<span class="badge bg-secondary rounded-pill">0</span>`;
+                        
+                        // Tabela da Tela
+                        linhasTabela += `
+                            <tr>
+                                <td class="text-start fw-semibold">${nomeExibicao}</td>
+                                <td>${item.valor}</td>
+                                <td>${spanPontos}</td>
+                            </tr>
+                        `;
+                        // Tabela da Impressão (limpa e profissional)
+                        linhasTabelaPrint += `
+                            <tr>
+                                <td class="text-start">${nomeExibicao}</td>
+                                <td>${item.valor}</td>
+                                <td>${item.pontos}</td>
+                            </tr>
+                        `;
+                    }
+                }
                 
                 resultadoDiv.innerHTML = `
                     <button type="button" class="btn-close position-absolute top-0 end-0 m-3" aria-label="Fechar" onclick="fecharAlertaScore()"></button>
-                    <div style="font-size: 1rem; font-weight: normal; text-transform: uppercase; margin-bottom: 5px; color: #495057;">Paciente: <strong>${dados.nome}</strong></div>
-                    Score ${dados.protocolo}: ${data.score} (${data.risco} Risco) <br>
-                    <span style="font-size: 1rem; font-weight: normal;">Conduta: ${data.conduta}</span>
+                    
+                    <div class="text-center mb-3">
+                        <div style="font-size: 1.1rem; text-transform: uppercase; color: #495057;">Paciente: <strong>${dados.nome}</strong></div>
+                        <h4 class="mt-2 fw-bold mb-1">Score ${dados.protocolo}: ${data.score} (${data.risco} Risco)</h4>
+                        <div style="font-size: 1.05rem;" class="fw-medium">${data.conduta}</div>
+                        
+                        <button type="button" class="btn btn-outline-dark btn-sm mt-3 fw-bold shadow-sm" onclick="imprimirTriagemRecemSalva()">
+                            <i class="bi bi-printer-fill me-1"></i> Imprimir Relatório
+                        </button>
+                    </div>
+
+                    <div class="row justify-content-center">
+                        <div class="col-md-8">
+                            <table class="table table-sm ${bgTable} table-extrato border border-dark-subtle mb-0 text-center shadow-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="text-start">Sinal Vital</th>
+                                        <th>Valor Aferido</th>
+                                        <th>Pontuação</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${linhasTabela}
+                                </tbody>
+                                <tfoot>
+                                    <tr class="table-light border-top border-dark-subtle">
+                                        <td colspan="2" class="text-end fw-bold">TOTAL:</td>
+                                        <td class="fw-bold fs-5">${data.score}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                `;
+
+                // Monta o layout de Impressão Invisível
+                let dataNascFormatada = dados.nascimento ? dados.nascimento.split('-').reverse().join('/') : "Não informada";
+                
+                document.getElementById('dados-impressao-atual').innerHTML = `
+                    <div class="p-3">
+                        <div class="text-center mb-4 pb-2" style="border-bottom: 2px solid #000;">
+                            <h3 style="margin-bottom: 5px; font-weight: bold;">RELATÓRIO DE TRIAGEM CLÍNICA - ${dados.protocolo}</h3>
+                            <h5 style="margin-bottom: 0;">Unidade: {{ unidade_nome }}</h5>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px;">DADOS DO PACIENTE</h6>
+                            <div class="row" style="font-size: 14px;">
+                                <div class="col-8"><strong>Paciente:</strong> ${dados.nome.toUpperCase()}</div>
+                                <div class="col-4"><strong>Data de Nascimento:</strong> ${dataNascFormatada}</div>
+                                <div class="col-8"><strong>Nome da Mãe:</strong> ${dados.mae || "Não informada"}</div>
+                                <div class="col-4"><strong>CPF:</strong> ${dados.cpf || "Não informado"}</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px;">DADOS DO ATENDIMENTO</h6>
+                            <div class="row" style="font-size: 14px;">
+                                <div class="col-6 mb-2"><strong>Data e Hora da Aferição:</strong> ${new Date().toLocaleString('pt-BR')}</div>
+                                <div class="col-6 mb-2"><strong>Responsável:</strong> {{ request.user.first_name }} {{ request.user.last_name }} ({{ request.user.username }})</div>
+                                <div class="col-6 mb-2"><strong>Protocolo Utilizado:</strong> ${dados.protocolo}</div>
+                                <div class="col-6 mb-2"><strong>Score Total:</strong> ${data.score}</div>
+                                <div class="col-6"><strong>Classificação de Risco:</strong> ${data.risco.toUpperCase()}</div>
+                                <div class="col-6"><strong>Status Médico:</strong> Pendente de Avaliação</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px; margin-bottom: 15px;">SINAIS VITAIS AFERIDOS</h6>
+                            <table class="table table-sm table-bordered text-center" style="font-size: 14px;">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="text-start">Sinal Vital</th>
+                                        <th>Valor Aferido</th>
+                                        <th>Pontuação</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${linhasTabelaPrint}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mb-5">
+                            <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px;">CONDUTA CLÍNICA E ORIENTAÇÕES</h6>
+                            <p style="font-size: 14px; text-align: justify;">${data.conduta}</p>
+                        </div>
+                        
+                        <div class="mt-5 pt-5 text-center">
+                            <p style="margin-bottom: 0;">_______________________________________________________________</p>
+                            <p style="margin-bottom: 0; font-weight: bold;">{{ request.user.first_name }} {{ request.user.last_name }}</p>
+                            <p style="font-size: 12px;">Assinatura e Carimbo do Profissional Responsável</p>
+                        </div>
+                    </div>
                 `;
                 
+                // Limpa o formulário
                 document.getElementById('atendimento_id').value = ''; 
                 document.getElementById('nome').value = '';
                 document.getElementById('cpf').value = '';
@@ -291,16 +517,13 @@
                 document.getElementById('uso_o2').value = 'Não';
                 document.getElementById('temp').value = '';
                 document.getElementById('pas').value = '';
+                document.getElementById('pad').value = '';
                 document.getElementById('fc').value = '';
                 document.getElementById('consciencia').value = 'Alerta';
+                document.getElementById('debito_urinario').value = '';
 
                 document.getElementById('secao-sinais-vitais').style.display = 'none';
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-
-                if (temporizadorAlerta) clearTimeout(temporizadorAlerta);
-                temporizadorAlerta = setTimeout(() => {
-                    fecharAlertaScore();
-                }, 5000);
 
             } else {
                 mostrarAlerta('Erro de Servidor: ' + data.erro);
@@ -321,6 +544,8 @@
         document.getElementById('mae').value = "{{ atendimento.paciente.nome_mae|default:'' }}";
         document.getElementById('protocolo').value = "{{ atendimento.protocolo }}";
         
+        ajustarCampos();
+        
         document.getElementById('freq_resp').value = "{{ atendimento.freq_respiratoria|default:'' }}";
         document.getElementById('sat_o2').value = "{{ atendimento.saturacao_o2|default:'' }}";
         document.getElementById('uso_o2').value = "{{ atendimento.uso_o2_suplementar|yesno:'Sim,Não' }}";
@@ -329,8 +554,12 @@
         document.getElementById('temp').value = temp;
         
         document.getElementById('pas').value = "{{ atendimento.pressao_sistolica|default:'' }}";
+        document.getElementById('pad').value = "{{ atendimento.pressao_diastolica|default:'' }}";
         document.getElementById('fc').value = "{{ atendimento.freq_cardiaca|default:'' }}";
         document.getElementById('consciencia').value = "{{ atendimento.nivel_consciencia|default:'Alerta' }}";
+        
+        let debito = "{{ atendimento.debito_urinario|default:'' }}".replace(',', '.');
+        document.getElementById('debito_urinario').value = debito;
         
         document.getElementById('secao-sinais-vitais').style.display = 'block';
         

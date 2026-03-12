@@ -7,45 +7,41 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
-        body {
-            background-color: #f8f9fa;
-            padding-bottom: 50px;
-        }
-        .navbar {
-            background-color: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            margin-bottom: 30px;
-        }
-        .info-card, .vitals-card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            border: none;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            margin-bottom: 20px;
-        }
-        .alert-box {
-            background-color: #fff5f5;
-            border: 1px solid #ffcdd2;
-            border-radius: 8px;
-            padding: 15px;
-        }
-        .vital-sign {
-            margin-bottom: 20px;
-        }
-        .vital-sign-label {
-            font-size: 0.85rem;
-            color: #6c757d;
-            margin-bottom: 5px;
-        }
-        .vital-sign-value {
-            font-size: 1.1rem;
-            font-weight: 500;
-            color: #212529;
+        body { background-color: #f8f9fa; padding-bottom: 50px; }
+        .navbar { background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
+        .info-card, .vitals-card { background: white; border-radius: 12px; padding: 25px; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; }
+        .alert-box { background-color: #fff5f5; border: 1px solid #ffcdd2; border-radius: 8px; padding: 15px; }
+        .vital-sign { margin-bottom: 20px; }
+        .vital-sign-label { font-size: 0.85rem; color: #6c757d; margin-bottom: 5px; display: flex; align-items: center; }
+        .vital-sign-value { font-size: 1.1rem; font-weight: 500; color: #212529; }
+        .badge-score { font-size: 0.75rem; padding: 0.25em 0.5em; margin-left: 8px; }
+
+        /* MÁGICA DA IMPRESSÃO: Esconde a tela normal e mostra só o documento limpo */
+        @media print {
+            body > :not(#print-container) {
+                display: none !important;
+            }
+            body {
+                background-color: white !important;
+                padding-bottom: 0;
+            }
+            #print-container {
+                display: block !important;
+                width: 100%;
+                color: black !important;
+            }
+            .table-bordered, .table-bordered th, .table-bordered td {
+                border: 1px solid #000 !important;
+            }
+            @page {
+                margin: 2cm;
+            }
         }
     </style>
 </head>
 <body>
+
+    <div id="print-container" class="d-none d-print-block"></div>
 
     <nav class="navbar navbar-expand-lg navbar-light">
         <div class="container-fluid px-4">
@@ -170,7 +166,7 @@
                     
                     {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
                         {% if pode_aferir %}
-                            <button class="btn btn-primary btn-sm fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovaAfericao">
+                            <button class="btn btn-primary btn-sm fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovaAfericao" onclick="ajustarCamposNovaAfericao()">
                                 <i class="bi bi-plus-circle me-1"></i> Nova Aferição
                             </button>
                         {% elif not is_finalizado %}
@@ -193,14 +189,19 @@
                             <span class="badge border me-3
                                 {% if afericao.classificacao_risco == 'Alto' %} bg-danger bg-opacity-10 text-danger border-danger
                                 {% elif afericao.classificacao_risco == 'Médio' %} bg-warning bg-opacity-10 text-warning border-warning
+                                {% elif afericao.classificacao_risco == 'Intermediário' %} bg-info bg-opacity-10 text-info border-info
                                 {% else %} bg-success bg-opacity-10 text-success border-success {% endif %}">
                                 {{ afericao.classificacao_risco|upper }} RISCO
                             </span>
                             <h4 class="fw-bold mb-0">{{ afericao.protocolo }}: {{ afericao.score_final }}</h4>
                             
+                            <button type="button" class="btn btn-sm btn-outline-dark ms-3 border-0" onclick="imprimirAfericao('{{ afericao.id }}')" title="Imprimir Relatório da Aferição">
+                                <i class="bi bi-printer fs-5"></i>
+                            </button>
+
                             {% if afericao.pode_editar %}
                                 {% if request.user.perfilacesso.tipo_perfil == 'ENFERMAGEM' or request.user.perfilacesso.tipo_perfil == 'ADMIN' %}
-                                <a href="{% url 'editar_triagem' afericao.id %}" class="btn btn-sm btn-outline-primary ms-3 border-0" title="Editar Aferição (Prazo de 5 min)">
+                                <a href="{% url 'editar_triagem' afericao.id %}" class="btn btn-sm btn-outline-primary ms-1 border-0" title="Editar Aferição (Prazo de 5 min)">
                                     <i class="bi bi-pencil-square fs-5"></i>
                                 </a>
                                 {% endif %}
@@ -232,36 +233,176 @@
 
                     <div class="row">
                         <div class="col-md-4 vital-sign">
-                            <div class="vital-sign-label">Frequência Respiratória</div>
+                            <div class="vital-sign-label">
+                                Frequência Respiratória
+                                {% if afericao.extrato.freq_respiratoria.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.freq_respiratoria.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
                             <div class="vital-sign-value">{{ afericao.freq_respiratoria|default:"-" }} /min</div>
                         </div>
+
+                        {% if afericao.protocolo != 'MEOWS' %}
                         <div class="col-md-4 vital-sign">
-                            <div class="vital-sign-label">Saturação de Oxigênio</div>
+                            <div class="vital-sign-label">
+                                Saturação O2
+                                {% if afericao.extrato.saturacao_o2.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.saturacao_o2.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
                             <div class="vital-sign-value">{{ afericao.saturacao_o2|default:"-" }} %</div>
                         </div>
+
                         <div class="col-md-4 vital-sign">
-                            <div class="vital-sign-label">Temperatura</div>
+                            <div class="vital-sign-label">
+                                O2 Suplementar
+                                {% if afericao.extrato.uso_o2_suplementar.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.uso_o2_suplementar.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
+                            <div class="vital-sign-value">{{ afericao.uso_o2_suplementar|yesno:"Sim,Não" }}</div>
+                        </div>
+                        {% endif %}
+
+                        <div class="col-md-4 vital-sign">
+                            <div class="vital-sign-label">
+                                Temperatura
+                                {% if afericao.extrato.temperatura.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.temperatura.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
                             <div class="vital-sign-value">{{ afericao.temperatura|default:"-" }} °C</div>
                         </div>
                         
-                        <div class="col-md-4 vital-sign mb-md-0">
-                            <div class="vital-sign-label">Pressão Sistólica</div>
+                        <div class="col-md-4 vital-sign">
+                            <div class="vital-sign-label">
+                                Pressão Sistólica
+                                {% if afericao.extrato.pressao_sistolica.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.pressao_sistolica.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
                             <div class="vital-sign-value">{{ afericao.pressao_sistolica|default:"-" }} mmHg</div>
                         </div>
+
+                        {% if afericao.protocolo == 'MEOWS' %}
+                        <div class="col-md-4 vital-sign">
+                            <div class="vital-sign-label">
+                                Pressão Diastólica
+                                {% if afericao.extrato.pressao_diastolica.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.pressao_diastolica.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
+                            <div class="vital-sign-value">{{ afericao.pressao_diastolica|default:"-" }} mmHg</div>
+                        </div>
+                        {% endif %}
+
                         <div class="col-md-4 vital-sign mb-md-0">
-                            <div class="vital-sign-label">Frequência Cardíaca</div>
+                            <div class="vital-sign-label">
+                                Frequência Cardíaca
+                                {% if afericao.extrato.freq_cardiaca.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.freq_cardiaca.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
                             <div class="vital-sign-value">{{ afericao.freq_cardiaca|default:"-" }} /min</div>
                         </div>
+
                         <div class="col-md-4 vital-sign mb-0">
-                            <div class="vital-sign-label">Consciência</div>
+                            <div class="vital-sign-label">
+                                Consciência
+                                {% if afericao.extrato.nivel_consciencia.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.nivel_consciencia.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
                             <div class="vital-sign-value">{{ afericao.nivel_consciencia|default:"-" }}</div>
+                        </div>
+
+                        {% if afericao.protocolo == 'MEOWS' %}
+                        <div class="col-md-4 vital-sign mb-0">
+                            <div class="vital-sign-label">
+                                Débito Urinário
+                                {% if afericao.extrato.debito_urinario.pontos > 0 %}<span class="badge bg-danger rounded-pill badge-score">+{{ afericao.extrato.debito_urinario.pontos }}</span>{% else %}<span class="badge bg-secondary rounded-pill badge-score">0</span>{% endif %}
+                            </div>
+                            <div class="vital-sign-value">{{ afericao.debito_urinario|default:"Não mensurado" }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mt-3 p-3 rounded" style="background-color: #f1f5f9; border: 1px solid #e2e8f0;">
+                        <div class="fw-bold" style="font-size: 0.9rem; color: #334155;">
+                            <i class="bi bi-info-circle-fill me-1 text-primary"></i> Orientação Clínica Recomendada:
+                        </div>
+                        <div class="mt-1 fw-medium" style="font-size: 0.9rem; color: #475569;">
+                            {{ afericao.conduta }}
                         </div>
                     </div>
 
                     <div class="mt-4 pt-3 border-top text-muted small">
                         Triado por: {{ afericao.enfermeiro.first_name }} ({{ afericao.enfermeiro.username }})
                     </div>
-                </div>
+
+                    <div id="print-data-{{ afericao.id }}" style="display: none;">
+                        <div class="p-3">
+                            <div class="text-center mb-4 pb-2" style="border-bottom: 2px solid #000;">
+                                <h3 style="margin-bottom: 5px; font-weight: bold;">RELATÓRIO DE TRIAGEM CLÍNICA - {{ afericao.protocolo }}</h3>
+                                <h5 style="margin-bottom: 0;">Unidade: {{ ultimo_atendimento.unidade.nome }}</h5>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px;">DADOS DO PACIENTE</h6>
+                                <div class="row" style="font-size: 14px;">
+                                    <div class="col-8"><strong>Paciente:</strong> {{ ultimo_atendimento.paciente.nome_completo|upper }}</div>
+                                    <div class="col-4"><strong>Data de Nascimento:</strong> {{ ultimo_atendimento.paciente.data_nascimento|date:"d/m/Y"|default:"Não informada" }}</div>
+                                    <div class="col-8"><strong>Nome da Mãe:</strong> {{ ultimo_atendimento.paciente.nome_mae|default:"Não informada" }}</div>
+                                    <div class="col-4"><strong>CPF:</strong> {{ ultimo_atendimento.paciente.cpf|default:"Não informado" }}</div>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px;">DADOS DO ATENDIMENTO</h6>
+                                <div class="row" style="font-size: 14px;">
+                                    <div class="col-6 mb-2"><strong>Data e Hora da Aferição:</strong> {{ afericao.data_hora_triagem|date:"d/m/Y, H:i:s" }}</div>
+                                    <div class="col-6 mb-2"><strong>Responsável pela Aferição:</strong> {{ afericao.enfermeiro.first_name }} {{ afericao.enfermeiro.last_name }} ({{ afericao.enfermeiro.username }})</div>
+                                    <div class="col-6 mb-2"><strong>Protocolo Utilizado:</strong> {{ afericao.protocolo }}</div>
+                                    <div class="col-6 mb-2"><strong>Score Total:</strong> {{ afericao.score_final }}</div>
+                                    <div class="col-6"><strong>Classificação de Risco:</strong> {{ afericao.classificacao_risco|upper }}</div>
+                                    <div class="col-6"><strong>Status Médico:</strong> 
+                                        {% if afericao.classificacao_risco == 'Alto' %}
+                                            {% if afericao.alerta_reconhecido %} Reconhecido por {{ afericao.medico_reconheceu.first_name|default:afericao.medico_reconheceu.username }}
+                                            {% else %} Pendente de Avaliação {% endif %}
+                                        {% else %}
+                                            Monitoramento Rotineiro
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px; margin-bottom: 15px;">SINAIS VITAIS AFERIDOS</h6>
+                                <table class="table table-sm table-bordered text-center" style="font-size: 14px;">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th class="text-start">Sinal Vital</th>
+                                            <th>Valor Aferido</th>
+                                            <th>Pontuação</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td class="text-start">Frequência Respiratória</td><td>{{ afericao.freq_respiratoria|default:"-" }} /min</td><td>{{ afericao.extrato.freq_respiratoria.pontos|default:"0" }}</td></tr>
+                                        {% if afericao.protocolo != 'MEOWS' %}
+                                            <tr><td class="text-start">Saturação O2</td><td>{{ afericao.saturacao_o2|default:"-" }} %</td><td>{{ afericao.extrato.saturacao_o2.pontos|default:"0" }}</td></tr>
+                                            <tr><td class="text-start">Uso de O2 Suplementar</td><td>{{ afericao.uso_o2_suplementar|yesno:"Sim,Não" }}</td><td>{{ afericao.extrato.uso_o2_suplementar.pontos|default:"0" }}</td></tr>
+                                        {% endif %}
+                                        <tr><td class="text-start">Temperatura</td><td>{{ afericao.temperatura|default:"-" }} °C</td><td>{{ afericao.extrato.temperatura.pontos|default:"0" }}</td></tr>
+                                        <tr><td class="text-start">Pressão Sistólica</td><td>{{ afericao.pressao_sistolica|default:"-" }} mmHg</td><td>{{ afericao.extrato.pressao_sistolica.pontos|default:"0" }}</td></tr>
+                                        {% if afericao.protocolo == 'MEOWS' %}
+                                            <tr><td class="text-start">Pressão Diastólica</td><td>{{ afericao.pressao_diastolica|default:"-" }} mmHg</td><td>{{ afericao.extrato.pressao_diastolica.pontos|default:"0" }}</td></tr>
+                                        {% endif %}
+                                        <tr><td class="text-start">Frequência Cardíaca</td><td>{{ afericao.freq_cardiaca|default:"-" }} /min</td><td>{{ afericao.extrato.freq_cardiaca.pontos|default:"0" }}</td></tr>
+                                        <tr><td class="text-start">Nível de Consciência</td><td>{{ afericao.nivel_consciencia|default:"-" }}</td><td>{{ afericao.extrato.nivel_consciencia.pontos|default:"0" }}</td></tr>
+                                        {% if afericao.protocolo == 'MEOWS' %}
+                                            <tr><td class="text-start">Débito Urinário</td><td>{{ afericao.debito_urinario|default:"Não mensurado" }}</td><td>{{ afericao.extrato.debito_urinario.pontos|default:"0" }}</td></tr>
+                                        {% endif %}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="mb-5">
+                                <h6 style="font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px;">CONDUTA CLÍNICA E ORIENTAÇÕES</h6>
+                                <p style="font-size: 14px; text-align: justify;">{{ afericao.conduta }}</p>
+                            </div>
+                            
+                            <div class="mt-5 pt-5 text-center">
+                                <p style="margin-bottom: 0;">_______________________________________________________________</p>
+                                <p style="margin-bottom: 0; font-weight: bold;">{{ afericao.enfermeiro.first_name }} {{ afericao.enfermeiro.last_name }}</p>
+                                <p style="font-size: 12px;">Assinatura e Carimbo do Profissional Responsável</p>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
                 {% empty %}
                 <div class="text-center text-muted py-5 border rounded bg-white">Nenhum histórico encontrado.</div>
                 {% endfor %}
@@ -325,7 +466,7 @@
 
             <div class="mb-4">
                 <label class="form-label fw-bold text-dark">Protocolo a ser aplicado <span class="text-danger">*</span></label>
-                <select class="form-select border-primary" id="na_protocolo">
+                <select class="form-select border-primary" id="na_protocolo" onchange="ajustarCamposNovaAfericao()">
                     <option value="NEWS" {% if ultimo_atendimento.protocolo == 'NEWS' %}selected{% endif %}>NEWS (Adulto)</option>
                     <option value="PEWS" {% if ultimo_atendimento.protocolo == 'PEWS' %}selected{% endif %}>PEWS (Pediátrico)</option>
                     <option value="MEOWS" {% if ultimo_atendimento.protocolo == 'MEOWS' %}selected{% endif %}>MEOWS (Obstétrico)</option>
@@ -337,11 +478,11 @@
                     <label class="form-label small fw-bold">Freq. Respiratória <span class="text-danger">*</span></label>
                     <input type="number" class="form-control" id="na_freq_resp">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-3" id="div_na_sat">
                     <label class="form-label small fw-bold">Saturação O2 (%) <span class="text-danger">*</span></label>
                     <input type="number" class="form-control" id="na_sat_o2">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-3" id="div_na_o2">
                     <label class="form-label small fw-bold">Uso de O2? <span class="text-danger">*</span></label>
                     <select class="form-select" id="na_uso_o2">
                         <option value="Não">Não</option>
@@ -354,16 +495,23 @@
                 </div>
             </div>
             
-            <div class="row">
+            <div class="row mb-3">
                 <div class="col-md-4">
                     <label class="form-label small fw-bold">Pressão Sistólica <span class="text-danger">*</span></label>
                     <input type="number" class="form-control" id="na_pas">
+                </div>
+                <div class="col-md-4" id="div_na_pad" style="display: none;">
+                    <label class="form-label small fw-bold">Pressão Diastólica <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="na_pad">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label small fw-bold">Freq. Cardíaca <span class="text-danger">*</span></label>
                     <input type="number" class="form-control" id="na_fc">
                 </div>
-                <div class="col-md-4">
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
                     <label class="form-label small fw-bold">Consciência <span class="text-danger">*</span></label>
                     <select class="form-select" id="na_consciencia">
                         <option value="Alerta">Alerta</option>
@@ -373,10 +521,14 @@
                         <option value="Inconsciente">Inconsciente</option>
                     </select>
                 </div>
+                <div class="col-md-6" id="div_na_debito" style="display: none;">
+                    <label class="form-label small fw-bold">Débito Urinário (mL/h) <span class="text-muted fw-normal">(vazio = N/A)</span></label>
+                    <input type="number" step="0.1" class="form-control" id="na_debito_urinario">
+                </div>
             </div>
             
-            <div id="erroAfericao" class="text-danger small fw-bold mt-3" style="display: none;">
-                Preencha todos os campos corretamente!
+            <div id="erroAfericao" class="alert alert-danger small fw-bold mt-3 py-2" style="display: none;">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i> Preencha todos os campos obrigatórios corretamente!
             </div>
 
           </div>
@@ -390,17 +542,67 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Função que ativa a impressão de uma aferição específica
+        function imprimirAfericao(id) {
+            // Copia o conteúdo do bloco invisível que criamos
+            const conteudoImpressao = document.getElementById('print-data-' + id).innerHTML;
+            
+            // Joga esse conteúdo no nosso container mestre de impressão
+            document.getElementById('print-container').innerHTML = conteudoImpressao;
+            
+            // Chama a caixa de diálogo de impressão do navegador
+            window.print();
+        }
+
+        function ajustarCamposNovaAfericao() {
+            const protocolo = document.getElementById('na_protocolo').value;
+            const divSat = document.getElementById('div_na_sat');
+            const divO2 = document.getElementById('div_na_o2');
+            const divPad = document.getElementById('div_na_pad');
+            const divDebito = document.getElementById('div_na_debito');
+
+            if (protocolo === 'MEOWS') {
+                divSat.style.display = 'none';
+                divO2.style.display = 'none';
+                divPad.style.display = 'block';
+                divDebito.style.display = 'block';
+            } else {
+                divSat.style.display = 'block';
+                divO2.style.display = 'block';
+                divPad.style.display = 'none';
+                divDebito.style.display = 'none';
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            ajustarCamposNovaAfericao();
+        });
+
         function salvarNovaAfericao() {
+            const protocolo = document.getElementById('na_protocolo').value;
             const freq_resp = document.getElementById('na_freq_resp').value;
             const sat_o2 = document.getElementById('na_sat_o2').value;
             const temp = document.getElementById('na_temp').value;
             const pas = document.getElementById('na_pas').value;
             const fc = document.getElementById('na_fc').value;
+            const pad = document.getElementById('na_pad').value;
 
-            if (freq_resp === "" || sat_o2 === "" || temp === "" || pas === "" || fc === "") {
+            if (freq_resp === "" || temp === "" || pas === "" || fc === "") {
                 document.getElementById('erroAfericao').style.display = 'block';
                 return; 
             }
+
+            if (protocolo === 'MEOWS' && pad === "") {
+                document.getElementById('erroAfericao').innerText = 'A Pressão Diastólica é obrigatória no protocolo MEOWS.';
+                document.getElementById('erroAfericao').style.display = 'block';
+                return;
+            } else if (protocolo !== 'MEOWS' && sat_o2 === "") {
+                document.getElementById('erroAfericao').innerText = 'A Saturação O2 é obrigatória neste protocolo.';
+                document.getElementById('erroAfericao').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('erroAfericao').style.display = 'none';
 
             const dados = {
                 atendimento_id: '',
@@ -408,15 +610,17 @@
                 cpf: document.getElementById('na_cpf').value,
                 nascimento: document.getElementById('na_nascimento').value,
                 mae: document.getElementById('na_mae').value,
-                protocolo: document.getElementById('na_protocolo').value,
+                protocolo: protocolo,
                 
                 freq_respiratoria: freq_resp,
                 saturacao_o2: sat_o2,
                 uso_o2_suplementar: document.getElementById('na_uso_o2').value,
                 temperatura: temp,
                 pressao_sistolica: pas,
+                pressao_diastolica: pad,
                 freq_cardiaca: fc,
-                nivel_consciencia: document.getElementById('na_consciencia').value
+                nivel_consciencia: document.getElementById('na_consciencia').value,
+                debito_urinario: document.getElementById('na_debito_urinario').value
             };
 
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;

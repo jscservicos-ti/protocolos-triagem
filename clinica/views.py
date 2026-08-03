@@ -558,14 +558,39 @@ def salvar_triagem(request):
         try:
             dados = json.loads(request.body)
             
-            paciente, created = Paciente.objects.get_or_create(
-                nome_completo=dados.get('nome').upper(),
-                defaults={
-                    'cpf': dados.get('cpf'),
-                    'data_nascimento': dados.get('nascimento') or None,
-                    'nome_mae': dados.get('mae')
-                }
-            )
+            nome_paciente = dados.get('nome').upper()
+            cpf_paciente = dados.get('cpf')
+            
+            # Limpa o CPF caso venha vazio do frontend, para garantir a lógica correta
+            if cpf_paciente:
+                cpf_paciente = cpf_paciente.strip()
+            if not cpf_paciente:
+                cpf_paciente = None
+
+            # ==========================================
+            # NOVA LÓGICA DE VALIDAÇÃO DE PACIENTES
+            # ==========================================
+            if cpf_paciente:
+                # 1. Se informou CPF: Procura apenas pelo CPF
+                paciente = Paciente.objects.filter(cpf=cpf_paciente).first()
+                
+                if not paciente:
+                    # Se não achou esse CPF, cria um novo paciente
+                    paciente = Paciente.objects.create(
+                        nome_completo=nome_paciente,
+                        cpf=cpf_paciente,
+                        data_nascimento=dados.get('nascimento') or None,
+                        nome_mae=dados.get('mae')
+                    )
+            else:
+                # 2. Se NÃO informou CPF: SEMPRE cria um paciente novo
+                paciente = Paciente.objects.create(
+                    nome_completo=nome_paciente,
+                    cpf=None,
+                    data_nascimento=dados.get('nascimento') or None,
+                    nome_mae=dados.get('mae')
+                )
+            # ==========================================
 
             protocolo_escolhido = dados.get('protocolo')
             
